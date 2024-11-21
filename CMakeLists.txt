@@ -4,7 +4,21 @@ project(MinimalQtVTKApp)
 find_package(VTK
   COMPONENTS
     CommonCore
-    GUISupportQt)
+    CommonTransforms
+    CommonColor
+    GUISupportQt
+    IOImage
+    ImagingCore
+    FiltersTexture
+    FiltersSources
+    InteractionStyle
+    InteractionWidgets
+    RenderingContextOpenGL2
+    RenderingCore
+    RenderingFreeType
+    RenderingGL2PSOpenGL2
+    RenderingOpenGL2
+)
 if (NOT VTK_FOUND)
   message("Skipping example: ${VTK_NOT_FOUND_MESSAGE}")
   return ()
@@ -19,6 +33,13 @@ endif ()
 # Set your files and resources here
 set(Srcs
   MinimalQtVTKApp.cxx)
+
+# Określamy, gdzie znajdują się tekstury (cały folder)
+set(TEXTURE_DIR ${CMAKE_SOURCE_DIR}/textures)
+
+# Kopiowanie plików z folderu 'textures' do folderu build
+file(GLOB TEXTURE_FILES "${TEXTURE_DIR}/*.jpg")
+file(COPY ${TEXTURE_FILES} DESTINATION ${CMAKE_BINARY_DIR}/textures)
 
 # Instruct CMake to run moc automatically when needed.
 set(CMAKE_AUTOMOC ON)
