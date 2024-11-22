@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: Copyright (c) Ken Martin, Will Schroeder, Bill Lorensen
 // SPDX-License-Identifier: BSD-3-Clause
+#define _USE_MATH_DEFINES
 #include <QVTKOpenGLNativeWidget.h>
 #include <vtkActor.h>
 #include <vtkDataSetMapper.h>
@@ -61,6 +62,13 @@
 #include <vtkTransformPolyDataFilter.h>
 #include <vtkBoxWidget.h>
 #include <vtkInteractorStyleTrackballCamera.h>
+#include <QDebug>
+#include <QSurfaceFormat>
+#include <QTimer>
+#include <vtkCellPicker.h>
+#include <vtkTextActor.h>
+#include <vtkTextProperty.h>
+
 namespace
 {
     
@@ -74,44 +82,97 @@ namespace
  * @param randEng the random number generator engine
  */
 } // namespace
+
+std::vector<vtkSmartPointer<vtkActor>> ballActors;
+// Zmienna globalna dla vtkActor
+vtkSmartPointer<vtkActor> TableActor = vtkSmartPointer<vtkActor>::New();
+
 void SetUpCamera(vtkSmartPointer<vtkRenderer> renderer, double width, double height, double z)
 {
     // Œrodek sto³u
-    double tableCenter[3] = { width / 2.0, height / 2.0 - 4, z + 2.0 };
+    double tableCenter[3] = { width , height - 5, z };
 
     // Tworzymy kamerê
     vtkSmartPointer<vtkCamera> camera = vtkSmartPointer<vtkCamera>::New();
 
     // Pozycja kamery - ustawiamy j¹ wy¿ej i dalej od sto³u, aby uzyskaæ lepszy widok
-    double cameraPosition[3] = { width / 2.0, height / 2.0, z + 5.0 }; // Kamera znajduje siê nad sto³em
+    double cameraPosition[3] = { width , height, z + 3.0 }; // Kamera znajduje siê nad sto³em
     camera->SetPosition(cameraPosition);
     camera->SetFocalPoint(tableCenter);  // Kamera patrzy na œrodek sto³u
     // Ustawienie k¹ta widzenia kamery
     camera->UseHorizontalViewAngleOn();
 
-    // Ustawienie k¹ta obrotu kamery, aby ograniczyæ obrót do osi Y (lewo/prawo)
-    //camera->Elevation(10.00);
-    //camera->Yaw(-60.00);
-    //camera->Roll(90.00);
-    //camera->Azimuth(45.00);
     camera->SetViewUp(0.0, 0.0, 1.0);
-    // Dodajemy ograniczenie obrotu kamery tylko wokó³ osi Y
-    // Obrót w lewo lub w prawo odbywa siê poprzez azimuth
-    //camera->Elevation(5.00);
-    //camera->Azimuth(190.00);
+    camera->Azimuth(90);
     renderer->SetActiveCamera(camera);
     renderer->ResetCamera();
 }
 
+// Sta³e
 
+const double resistanceFactor = 0.99;  // Wspó³czynnik oporu (tarcia)
+const double restitutionCoefficient = 0.97; // Wspó³czynnik odbicia (0.0 - brak odbicia, 1.0 - idealne odbicie)
+
+// Funkcja do obliczenia normalnej powierzchni (zak³adaj¹c odbicie od œcian)
+void getNormal(double& normalX, double& normalY, double posX, double posY, double width, double height) {
+    if (posX <= width / 15.75 || posX >= width - width / 15.75) {
+        // Odbicie od œciany pionowej
+        normalX = (posX <= width / 15.75) ? 1.0 : -1.0;
+        normalY = 0.0;
+    }
+    else if (posY <= height / 7.75 || posY >= height - height / 7.75) {
+        // Odbicie od œciany poziomej
+        normalX = 0.0;
+        normalY = (posY <= height / 7.75) ? 1.0 : -1.0;
+    }
+    else {
+        normalX = 0.0;
+        normalY = 0.0;
+    }
+}
+// Funkcja do obliczenia k¹ta odbicia kuli
+void reflectBall(double& ballSpeedX, double& ballSpeedY, double normalX, double normalY) {
+    // Obliczanie k¹ta odbicia
+    double dotProduct = ballSpeedX * normalX + ballSpeedY * normalY;
+    double normalMagnitudeSquared = normalX * normalX + normalY * normalY;
+
+    // Obliczenie skalarnej projekcji prêdkoœci na normaln¹ powierzchni
+    double projection = 2.0 * dotProduct / normalMagnitudeSquared;
+
+    // Prêdkoœæ odbicia (kierunek zmienia siê o podwójny rzut na normaln¹)
+    ballSpeedX -= projection * normalX;
+    ballSpeedY -= projection * normalY;
+
+    ballSpeedX *= restitutionCoefficient;
+    ballSpeedY *= restitutionCoefficient;
+}
 
 class SmoothCameraRotation
 {
 public:
-    SmoothCameraRotation(vtkRenderer* renderer, vtkRenderWindowInteractor* interactor, vtkCamera* camera)
-        : Renderer(renderer), Interactor(interactor), CurrentStep(0), TotalSteps(90)
+    SmoothCameraRotation(vtkRenderer* renderer, vtkRenderWindowInteractor* interactor, double angle)
+        : Renderer(renderer), Interactor(interactor), CurrentStep(0), TotalSteps(5)
     {
-        AngleIncrement = 45.0 / TotalSteps; // 45 stopni w 90 krokach
+        vtkCamera* camera = renderer->GetActiveCamera();
+        // Zmienna do przechowywania pozycji kamery
+        //double position[3];
+        //camera->GetPosition(position);
+        //// Wyœwietlenie pozycji kamery za pomoc¹ qDebug
+        //    // Wyœwietlenie pozycji kamery za pomoc¹ qDebug
+        //QString message = QString("Pozycja kamery: x = %1, y = %2, z = %3")
+        //    .arg(position[0]) // Podstawienie wartoœci x
+        //    .arg(position[1]) // Podstawienie wartoœci y
+        //    .arg(position[2]); // Podstawienie wartoœci z
+        //// Wyœwietlenie komunikatu za pomoc¹ qDebug
+        //qDebug()<< message;
+        //camera->GetFocalPoint(position);
+        //message = QString("Pozycja punktu patrzenia kamery: x = %1, y = %2, z = %3")
+        //    .arg(position[0]) // Podstawienie wartoœci x
+        //    .arg(position[1]) // Podstawienie wartoœci y
+        //    .arg(position[2]); // Podstawienie wartoœci z
+        //// Wyœwietlenie komunikatu za pomoc¹ qDebug
+        //qDebug() << message;
+        AngleIncrement = angle / TotalSteps; // 45 stopni w 90 krokach
     }
 
     // Funkcja startuj¹ca animacjê
@@ -170,50 +231,127 @@ public:
 
     // Funkcja do obracania kamery o 45 stopni w azymucie
 
-    CameraInteractorStyle() : IsDrag(false) {}
+    CameraInteractorStyle() : IsDrag(false), IsSelected(false), trackedActor(nullptr) {}
 
 
-    void OnRightButtonDown() override
+    void OnKeyDown() override
     {
-        // Uzyskanie renderera z interaktora
+        // Pobierz wciœniêty klawisz
+        std::string key = this->GetInteractor()->GetKeySym();
         vtkRenderWindowInteractor* interactor = this->GetInteractor();
         vtkRenderer* renderer = interactor->GetRenderWindow()->GetRenderers()->GetFirstRenderer();
-        vtkSmartPointer<vtkCamera> camera = renderer->GetActiveCamera();
-        if (renderer)
+        // Obs³uga prawej strza³ki
+        if (key == "Right")
         {
-            auto cameraAnimation = new SmoothCameraRotation(renderer, interactor, camera);
-            cameraAnimation->Start();
-            
-        }
+            double angle = 5;
+            if (renderer)
+            {
 
-        vtkInteractorStyleTrackballCamera::OnRightButtonDown(); // Wywo³anie domyœlnej obs³ugi zdarzenia
+                auto cameraAnimation = new SmoothCameraRotation(renderer, interactor, angle);
+                
+                cameraAnimation->Start();
+            }
+        }
+        if (key == "Left")
+        {
+            double angle = -5;
+            if (renderer)
+            {
+                auto cameraAnimation = new SmoothCameraRotation(renderer, interactor, angle);
+                cameraAnimation->Start();
+            }
+        }
+        // Wywo³anie oryginalnej implementacji (opcjonalne)
+        //vtkInteractorStyleTrackballCamera::OnKeyDown();
     }
     void OnLeftButtonDown() override
     {
-        //IsDrag = true;
-        // Uzyskanie renderera z interaktora
-        //vtkRenderWindowInteractor* interactor = this->GetInteractor();
-        //vtkRenderer* renderer = interactor->GetRenderWindow()->GetRenderers()->GetFirstRenderer();
+        // Pobierz wspó³rzêdne klikniêcia myszk¹
+        
+        if (!IsSelected) {
+            vtkRenderWindowInteractor* interactor = this->GetInteractor();
+            vtkRenderer* renderer = interactor->GetRenderWindow()->GetRenderers()->GetFirstRenderer();
+            int* clickPos = interactor->GetEventPosition();
+            // Wykonaj picking
+            vtkSmartPointer<vtkCellPicker> picker = vtkSmartPointer<vtkCellPicker>::New();
+            picker->SetTolerance(0.001);
 
-        //if (renderer)
-        //{
-        //    vtkSmartPointer<vtkCamera> camera = renderer->GetActiveCamera();
-        //    camera->Azimuth(45); // Obrót o 45 stopni w azymucie
-        //    interactor->GetRenderWindow()->Render(); // Aktualizuj okno renderowania
-        //}
+            if (picker->Pick(clickPos[0], clickPos[1], 0, renderer)) {
+                vtkSmartPointer<vtkActor> pickedActor = picker->GetActor();
+                if (pickedActor == ballActors[0]) {
+                    std::cout << "Kliknieta biala kula" << std::endl;
 
-        //vtkInteractorStyleTrackballCamera::OnLeftButtonDown(); // Wywo³anie domyœlnej obs³ugi zdarzenia
+                    double pos[2];
+                    pickedActor->GetPosition(pos);
+                    if (pos[0] < 0)
+                    {
+                        this->trackedActor = pickedActor;
+                        this->IsSelected = true;
+                        std::cout << "Wybor miejsca dla kuli" << std::endl;
+                    }
+                }
+            }
+        }
+        // Wywo³anie oryginalnej implementacji
+        //vtkInteractorStyleTrackballCamera::OnLeftButtonDown();
     }
     // Wykonywana podczas przesuwania myszk¹, ale zablokowana, gdy IsDrag jest false
+    void OnMiddleButtonDown() override
+    {
+        // Zablokowanie przesuwania kamery œrodkowym przyciskiem myszy
+        // Nie wywo³uj funkcji bazowej, aby nie przesuwaæ kamery
+        // vtkInteractorStyleTrackballCamera::OnMiddleButtonDown();
+    }
+    void OnRightButtonDown() override {
+ 
+        if (IsSelected)
+        {
+            vtkRenderWindowInteractor* interactor = this->GetInteractor();
+            vtkRenderer* renderer = interactor->GetRenderWindow()->GetRenderers()->GetFirstRenderer();
+
+
+            // Pobierz bie¿¹c¹ pozycjê kursora
+            int* mousePos = interactor->GetEventPosition();
+            // Stwórz picker do wykrywania klikniêæ na aktorach
+            vtkSmartPointer<vtkCellPicker> picker = vtkSmartPointer<vtkCellPicker>::New();
+            picker->SetTolerance(0.001);  // Ustaw tolerancjê pickingu
+            if (picker->Pick(mousePos[0], mousePos[1], 0, renderer)) {
+                vtkSmartPointer<vtkActor> pickedActor = picker->GetActor();
+
+                if (pickedActor == TableActor) {
+                    // Pobierz wspó³rzêdne punktu na powierzchni obiektu
+                    double pickedPos[3];
+                    picker->GetPickPosition(pickedPos);  // Pobierz punkt na powierzchni obiektu
+
+                    // Wydrukuj wynik
+                    /*std::cout << "Klikniêto aktor o wspó³rzêdnych X: " << pickedPos[0]
+                        << ", Y: " << pickedPos[1]
+                        << ", Z: " << pickedPos[2] << std::endl;*/
+
+                    // Ustaw pozycjê trackedActor na wybranej lokalizacji (na powierzchni obiektu)
+                    this->trackedActor->SetPosition(pickedPos[0], pickedPos[1], 0.15);  // Z ustawiony na 0.15
+
+                    vtkSmartPointer<vtkCamera> camera = renderer->GetActiveCamera();
+                    camera->SetFocalPoint(pickedPos[0], pickedPos[1], 0.15);
+                    this->IsSelected = false;
+                    this->trackedActor = nullptr;
+                }
+            }
+        }
+        //vtkInteractorStyleTrackballCamera::OnRightButtonDown();
+        //std::cout << "x " << worldPos[0] << "y " <<  worldPos[1] << "z " << worldPos[2] << "idk "<<  worldPos[3] << std::endl; 
+    }
     void OnMouseMove() override
     {
         if (IsDrag)
         {
-            vtkInteractorStyleTrackballCamera::OnMouseMove(); // Obrót kamery tylko wtedy, gdy przycisk jest wciœniêty
+            //vtkInteractorStyleTrackballCamera::OnMouseMove(); // Obrót kamery tylko wtedy, gdy przycisk jest wciœniêty
         }
     }
 
 private:
+    vtkSmartPointer<vtkActor> trackedActor;
+    bool IsSelected;
     bool IsDrag; // Flaga mówi¹ca, czy myszka jest wciœniêta
 };
 
@@ -361,9 +499,12 @@ int main(int argc, char* argv[])
   QSurfaceFormat::setDefaultFormat(QVTKOpenGLNativeWidget::defaultFormat());
   QApplication app(argc, argv);
 
-  qDebug("Tworzenie glownego okna...");
+  
   QMainWindow mainWindow;
-  mainWindow.resize(1200, 900);
+  mainWindow.setWindowTitle("Bilard Game");
+  mainWindow.resize(800, 800);
+
+  qDebug("Wyswietlenie okna...");
   qDebug("Tworzenie widgetu renderowania...");
   // render area
   QPointer<QVTKOpenGLNativeWidget> vtkRenderWidget = new QVTKOpenGLNativeWidget();
@@ -371,6 +512,7 @@ int main(int argc, char* argv[])
   mainWindow.setCentralWidget(vtkRenderWidget);
 
   qDebug("Tworzenie okna renderowania...");
+
   vtkSmartPointer<vtkGenericOpenGLRenderWindow> window = vtkSmartPointer<vtkGenericOpenGLRenderWindow>::New();
 
   vtkRenderWidget->setRenderWindow(window.Get());
@@ -380,8 +522,30 @@ int main(int argc, char* argv[])
   vtkNew<vtkRenderer> renderer;
   window->AddRenderer(renderer);
 
-  //vtkNew<vtkRenderWindowInteractor> interactor;
-  //interactor->SetRenderWindow(window.Get());
+
+  // Utwórz tekst
+  vtkSmartPointer<vtkTextActor> textActor = vtkSmartPointer<vtkTextActor>::New();
+  textActor->GetPositionCoordinate()->SetCoordinateSystemToNormalizedDisplay(); // Normalizowane wspó³rzêdne ekranu
+  textActor->SetTextScaleModeToNone();
+  textActor->SetInput("BILARD GAME");
+  textActor->GetPositionCoordinate()->SetCoordinateSystemToNormalizedDisplay();
+  renderer->AddActor(textActor);
+  // Utwórz tekst
+  vtkSmartPointer<vtkTextActor> textActorScore = vtkSmartPointer<vtkTextActor>::New();
+  textActorScore->GetPositionCoordinate()->SetCoordinateSystemToNormalizedDisplay(); // Normalizowane wspó³rzêdne ekranu
+  textActorScore->SetTextScaleModeToNone();
+  textActorScore->SetInput("SCORE: 1000");
+  textActorScore->SetPosition(0.8,0.01);
+  textActorScore->GetTextProperty()->SetFontSize(24);
+  // Ustawienie pozycji w prawym górnym rogu
+  //textActorScore->SetDisplayPosition(0.8 * renderer->GetSize()[0], 0.9 * renderer->GetSize()[1]); // Pozycja na ekranie, gdzie 90% szerokoœci i wysokoœci ekranu
+  textActorScore->SetWidth(1.0);
+  textActorScore->GetPositionCoordinate()->SetCoordinateSystemToNormalizedDisplay(); // Ustawienie na normalizowane wspó³rzêdne
+
+
+
+  // Dodaj tekst do renderer
+  //renderer->AddActor2D(textActorScore);
 
   ////////////////////////////
   
@@ -415,7 +579,7 @@ int main(int argc, char* argv[])
   polyData->GetPointData()->SetTCoords(textureCoordinates);
 
   
-  auto distance = [](double x1, double y1, double x2, double y2) {
+  auto distanceCheck = [](double x1, double y1, double x2, double y2) {
       return sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
       };
 
@@ -446,22 +610,22 @@ int main(int argc, char* argv[])
                   
               }
           }
-          if (distance(i, j, distFromUpTab, distFromUpTab) < radius) {
+          if (distanceCheck(i, j, distFromUpTab, distFromUpTab) < radius) {
               z = -0.5; // Obni¿enie punktu w okolicy dziurki
           }
-          if (distance(i, j, distFromUpTab, pointsY - distFromUpTab) < radius) {
+          if (distanceCheck(i, j, distFromUpTab, pointsY - distFromUpTab) < radius) {
               z = -0.5;
           }
-          if (distance(i, j, pointsX - distFromUpTab, distFromUpTab) < radius) {
+          if (distanceCheck(i, j, pointsX - distFromUpTab, distFromUpTab) < radius) {
               z = -0.5;
           }
-          if (distance(i, j, pointsX - distFromUpTab, pointsY - distFromUpTab) < radius) {
+          if (distanceCheck(i, j, pointsX - distFromUpTab, pointsY - distFromUpTab) < radius) {
               z = -0.5; 
           }
-          if (distance(i, j, pointsX / 2, distFromUpTab - 2) < radius) {
+          if (distanceCheck(i, j, pointsX / 2, distFromUpTab - 2) < radius) {
               z = -0.5;
           }
-          if (distance(i, j, pointsX / 2, pointsY - distFromUpTab + 2) < radius) {
+          if (distanceCheck(i, j, pointsX / 2, pointsY - distFromUpTab + 2) < radius) {
               z = -0.5;
           }
           points->InsertNextPoint(x, y, z);
@@ -526,31 +690,27 @@ int main(int argc, char* argv[])
   polyData->ShallowCopy(smoother->GetOutput());
   // Mapper i Actor
   vtkNew<vtkPolyDataMapper> mapper;
-  vtkNew<vtkActor> actor;
+
   mapper->SetInputData(polyData);
-  actor->GetProperty()->SetRepresentationToPoints(); // Ustawienie na punkty
-  actor->GetProperty()->SetPointSize(2); // Rozmiar punktów
-  //actor->GetProperty()->SetColor(0.2, 0.8, 0.4); // Kolor siatki
-  actor->SetMapper(mapper);
-  actor->SetTexture(texture);
-  actor->GetProperty()->SetRepresentationToSurface();
-  //actor->GetProperty()->SetRepresentationToWireframe();
-  actor->GetProperty()->SetEdgeVisibility(false);
+  TableActor->GetProperty()->SetRepresentationToPoints(); // Ustawienie na punkty
+  TableActor->GetProperty()->SetPointSize(2); // Rozmiar punktów
+  //TableActor->GetProperty()->SetColor(0.2, 0.8, 0.4); // Kolor siatki
+  TableActor->SetMapper(mapper);
+  TableActor->SetTexture(texture);
+  TableActor->GetProperty()->SetRepresentationToSurface();
+  //TableActor->GetProperty()->SetRepresentationToWireframe();
+  TableActor->GetProperty()->SetEdgeVisibility(false);
 
   
-  renderer->AddActor(actor);
+  renderer->AddActor(TableActor);
   renderer->AddLight(light);          // Dodanie œwiat³a do renderera
   renderer->AddLight(light2);
   renderer->AddLight(light3);
   renderer->AddLight(light4);
   qDebug("Ustawianie kamery...");
   // Ustawienie kamery
-  SetUpCamera(renderer, width, height, 0.5);
+  //SetUpCamera(renderer, width, height, 0.5);
 
-  // Ustawienie nowego stylu interakcji dla renderera
-  vtkSmartPointer<CameraInteractorStyle> style = vtkSmartPointer<CameraInteractorStyle>::New();
-  vtkSmartPointer<vtkRenderWindowInteractor> interactor = window->GetInteractor();
-  interactor->SetInteractorStyle(style);
 
 
   // Tworzenie obiektu reprezentuj¹cego pozycjê œwiat³a
@@ -592,11 +752,41 @@ int main(int argc, char* argv[])
       {1.0 + width / 2 + 1.095, height / 2 + 0.615 , 0.15,  1.0, 0.0, 1.0, false},      // Fioletowa kula (4)
       {1.0 + width / 2 + 0.545, height / 2 + 0.000 , 0.15,  0.0, 0.0, 0.0, false}       // Kula 8 (czarna)
   };
+
+  SetUpCamera(renderer, std::get<0>(balls[0]), std::get<1>(balls[0]), std::get<2>(balls[0]));
+  vtkSmartPointer<vtkCamera> camera = renderer->GetActiveCamera();
+  camera->SetFocalPoint(std::get<0>(balls[0]), std::get<1>(balls[0]), 0.15);
+  //SetUpCamera(renderer, 2, 2, 0);
+  double position[3];
+  renderer->GetActiveCamera()->GetPosition(position);
+  // Wyœwietlenie pozycji kamery za pomoc¹ qDebug
+      // Wyœwietlenie pozycji kamery za pomoc¹ qDebug
+  QString message = QString("Pozycja kamery: x = %1, y = %2, z = %3")
+      .arg(position[0]) // Podstawienie wartoœci x
+      .arg(position[1]) // Podstawienie wartoœci y
+      .arg(position[2]); // Podstawienie wartoœci z
+  // Wyœwietlenie komunikatu za pomoc¹ qDebug
+  qDebug() << message;
   double bounds[4] = { 16.0, width - 16.0, 16.0,  height - 16.0 }; // minX, maxX, minY, maxY
+
+
+
+
+
+  // Ustawienie nowego stylu interakcji dla renderera
+  vtkSmartPointer<CameraInteractorStyle> style = vtkSmartPointer<CameraInteractorStyle>::New();
+  vtkSmartPointer<vtkRenderWindowInteractor> interactor = window->GetInteractor();
+  interactor->SetInteractorStyle(style);
+
+  qDebug("Startowanie interaktora...");
+  interactor->EnableRenderOn();
+  interactor->Start();
+
   qDebug("Fizyka bili...");
   // Wektor przechowuj¹cy obiekty MovingSphere
   auto movingSpheres = std::make_shared<std::vector<std::unique_ptr<MovingSphere>>>();
   // Tworzenie kul na podstawie pozycji
+
   for (const auto& ball : balls) {
       
       double x, y, z, r, g, b;
@@ -605,27 +795,16 @@ int main(int argc, char* argv[])
       // Tworzenie kuli i przypisanie tekstury
       vtkSmartPointer<vtkActor> ballActor = createBall(x, y, z, r, g, b, hasStripe);
       // Tworzenie obiektu ruchomej kuli
-      auto movingSphere = std::make_unique<MovingSphere>(ballActor, bounds);
-      movingSpheres->push_back(std::move(movingSphere));
+      //auto movingSphere = std::make_unique<MovingSphere>(ballActor, bounds);
+      // Dodawanie aktora do kontenera
+      ballActors.push_back(ballActor);
+      //movingSpheres->push_back(std::move(movingSphere));
       renderer->AddActor(ballActor);
   }
   qDebug("Dodano bile...");
   /////// RUCH 
   // Dodanie callbacku do aktualizacji pozycji
   // Callback do aktualizacji pozycji wszystkich kul
-
-
-
-  //vtkNew<vtkCallbackCommand> timerCallback;
-  //qDebug("Poruszanie bil...");
-  //timerCallback->SetCallback([](vtkObject*, unsigned long, void* clientData, void*) {
-  //    auto* spheres = static_cast<std::vector<std::unique_ptr<MovingSphere>>*>(clientData);
-  //    for (auto& sphere : *spheres) {
-  //        sphere->UpdatePosition(1.0); // Aktualizuj pozycjê ka¿dej kuli
-  //    }
-  //    });
-  //// Przekazanie wskaŸnika do callbacka
-  //timerCallback->SetClientData(movingSpheres.get());
 
   qDebug("Dodawanie obserwatora do interaktora...");
   // Dodanie obserwatora do interaktora
@@ -638,12 +817,127 @@ int main(int argc, char* argv[])
   // Start renderowania
   //renderer->ResetCamera();
   window->Render();
-  interactor->Start();
 
-  
-  //interactor->Start();
-  qDebug("Startowanie interaktora...");
+ 
   mainWindow.show();
-  qDebug("Wyswietlenie okna...");
+
+  // Przyk³adowe wspó³rzêdne œrodków dziurek
+  //const double holeRadius = 10.0; // Promieñ dziurki
+  const double hole1[2] = { width / 15.75, height - height / 7.75 }; // Wspó³rzêdne pierwszej dziurki
+  const double hole2[2] = { width / 2, height - height / 7.75 }; // Wspó³rzêdne drugiej dziurki
+  const double hole3[2] = { width - width / 15.75, height - height / 7.75 }; // Trzecia dziurka
+  const double hole4[2] = { width / 15.75, height / 7.75 }; // Czwórka
+  const double hole5[2] = { width / 2, height / 7.75 }; // Pi¹tka
+  const double hole6[2] = { width - width / 15.75, height / 7.75 }; // Szóstka
+
+
+  // Funkcja sprawdzaj¹ca, czy kula wpad³a do którejkolwiek z dziurek
+  auto isInHole = [&distanceCheck,&hole1, &hole2, &hole3, &hole4, &hole5, &hole6](double ballX, double ballY) {
+
+      double holeRadius = 0.1;
+      // Sprawdzamy odleg³oœæ od ka¿dego œrodka dziurki
+      if (distanceCheck(ballX, ballY, hole1[0], hole1[1]) <= holeRadius) {
+          return true;
+      }
+      if (distanceCheck(ballX, ballY, hole2[0], hole2[1]) <= holeRadius) {
+          return true;
+      }
+      if (distanceCheck(ballX, ballY, hole3[0], hole3[1]) <= holeRadius) {
+          return true;
+      }
+      if (distanceCheck(ballX, ballY, hole4[0], hole4[1]) <= holeRadius) {
+          return true;
+      }
+      if (distanceCheck(ballX, ballY, hole5[0], hole5[1]) <= holeRadius) {
+          return true;
+      }
+      if (distanceCheck(ballX, ballY, hole6[0], hole6[1]) <= holeRadius) {
+          return true;
+      }
+
+      return false;
+      };
+
+  QTimer timer; 
+  double pushPower = 10.00;
+  double ballSpeedX = 0.020 * pushPower;
+  double ballSpeedY = 0.000 * pushPower;
+
+
+  QObject::connect(&timer, &QTimer::timeout, [&]() {
+      // Pobierz bie¿¹c¹ pozycjê kuli
+      double position[3];
+      ballActors[0]->GetPosition(position);
+      // Przesuñ kulê w osi X
+      // Sprawdzanie, czy prêdkoœci nie s¹ zerowe
+
+      double normalX, normalY;
+      
+      getNormal(normalX, normalY, position[0], position[1], width, height);
+
+      // Obliczanie rotacji
+      double speedVector = std::sqrt(ballSpeedX * ballSpeedX + ballSpeedY * ballSpeedY);
+      double angularSpeed = speedVector / 0.15;
+
+      // Oœ obrotu
+      double rotationAxis[3] = { -ballSpeedY, ballSpeedX, 0.0 };
+      double axisLength = std::sqrt(rotationAxis[0] * rotationAxis[0] + rotationAxis[1] * rotationAxis[1]);
+      rotationAxis[0] /= axisLength;
+      rotationAxis[1] /= axisLength;
+
+      // K¹t rotacji w tej klatce
+      double angle = angularSpeed * 16.0 / 15.0; // Konwersja z ms do sekund
+
+      // Aktualizacja transformacji
+      ballActors[0]->RotateWXYZ(angle * 180.0 / M_PI, rotationAxis[0], rotationAxis[1], rotationAxis[2]);
+
+      // Zastosowanie oporu do prêdkoœci (spowalnia z czasem)
+      ballSpeedX *= resistanceFactor;  // Zmniejsz prêdkoœæ w osi X
+      ballSpeedY *= resistanceFactor;  // Zmniejsz prêdkoœæ w osi Y
+
+      if (normalX != 0.0 || normalY != 0.0) {
+          reflectBall(ballSpeedX, ballSpeedY, normalX, normalY);
+      }
+      position[0] += ballSpeedX;
+      position[1] += ballSpeedY;
+
+      const double margin = 2.5;
+      // TRAFIENIE DO DZIUR
+      if (isInHole(position[0], position[1])) {
+          ballSpeedY = 0;
+          ballSpeedX = 0;
+          if (position[2] < 0.5)
+          {
+              position[2] += 0.05;
+          }
+          else {
+              position[2] = -0.5;
+              position[1] = 0.15;
+              position[0] = -0.5;
+          }
+      }
+      // Zatrzymywanie siê kuli po osi¹gniêciu niskiej prêdkoœci (minimalna prêdkoœæ)
+      if (fabs(ballSpeedX) < 0.0005 && fabs(ballSpeedY) < 0.0005) {
+          ballSpeedX = 0.0;  // Zatrzymanie prêdkoœci w osi X
+          ballSpeedY = 0.0;  // Zatrzymanie prêdkoœci w osi Y
+          camera->SetFocalPoint(ballActors[0]->GetPosition());
+      }
+
+      ballActors[0]->SetPosition(position);
+      //ballActors[1]->SetOrientation(rotationX, rotationY, rotationZ);
+      // Wymuœ renderowanie, aby zaktualizowaæ scenê
+      vtkRenderWidget->renderWindow()->Render();
+      });
+
+  timer.start(16); // Uruchom timer z interwa³em ~60 FPS (16 ms)
+
+
+
+
+
+
+
+
   return app.exec();
 }
+
