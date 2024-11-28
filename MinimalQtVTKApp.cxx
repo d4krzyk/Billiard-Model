@@ -27,6 +27,7 @@
 #include <vtkPolyData.h>
 #include <vtkFloatArray.h>
 #include <vtkPoints.h>
+#include <qthread.h>
 #include <vtkCellArray.h>
 #include <vtkTriangle.h>
 #include <vtkPolyDataMapper.h>
@@ -1020,7 +1021,7 @@ int main(int argc, char* argv[])
   mainWindow.show();
   QTimer timer; 
   double pushPower = 1.00;
-  double ballSpeedX = 0.300 * pushPower;
+  double ballSpeedX = 0.500 * pushPower;
   double ballSpeedY = 0.000 * pushPower;
   bool isHoled = false;
 
@@ -1031,7 +1032,9 @@ int main(int argc, char* argv[])
       // Pobierz bie¿¹c¹ pozycjê kuli
 
       bool allBallsStopped = true;
-
+      // Pauza na 500 ms (pozwala na obserwacjê efektów)
+      QCoreApplication::processEvents();
+      QThread::msleep(100); // Wstrzymanie na 500 ms
       for (Ball* ball : balls) {
           ball->updatePosition(); // Aktualizacja ka¿dej kuli z kamer¹
       }
@@ -1053,16 +1056,10 @@ int main(int argc, char* argv[])
         camera->SetFocalPoint(balls[0]->ballActor->GetPosition());
       }
       vtkRenderWidget->renderWindow()->Render();
+
       });
 
   timer.start(16); // Uruchom timer z interwa³em ~60 FPS (16 ms)
-
-
-
-
-
-
-
 
   return app.exec();
 }
