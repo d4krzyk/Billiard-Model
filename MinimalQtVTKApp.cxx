@@ -69,6 +69,7 @@
 #include <vtkCellPicker.h>
 #include <vtkTextActor.h>
 #include <vtkTextProperty.h>
+#include <vtkline.h>
 
 namespace
 {
@@ -369,27 +370,27 @@ vtkStandardNewMacro(CameraInteractorStyle);
 char* getTexturePath(double r, double g, double b, bool hasStripe) {
     // Kolory kul (w formacie RGB)
     if (!hasStripe) {
-        if (r == 1.0 && g == 1.0 && b == 1.0) return "textures/white_ball_texture.jpg";  // Bia³a kula
-        if (r == 1.0 && g == 0.0 && b == 0.0) return "textures/red_ball_texture.jpg";    // Czerwona kula
-        if (r == 0.0 && g == 1.0 && b == 0.0) return "textures/green_ball_texture.jpg";  // Zielona kula
-        if (r == 0.0 && g == 0.0 && b == 1.0) return "textures/blue_ball_texture.jpg";   // Niebieska kula
-        if (r == 1.0 && g == 1.0 && b == 0.0) return "textures/yellow_ball_texture.jpg"; // ¯ó³ta kula
-        if (r == 1.0 && g == 0.0 && b == 1.0) return "textures/purple_ball_texture.jpg"; // Fioletowa kula
-        if (r == 0.0 && g == 1.0 && b == 1.0) return "textures/orange_ball_texture.jpg"; // Pomarañczowa kula
-        if (r == 0.5 && g == 0.5 && b == 0.5) return "textures/brown_ball_texture.jpg";  // Br¹zowa kula
+        if (r == 1.0 && g == 1.0 && b == 1.0) return (char*)"textures/white_ball_texture.jpg";  // Bia³a kula
+        if (r == 1.0 && g == 0.0 && b == 0.0) return (char*)"textures/red_ball_texture.jpg";    // Czerwona kula
+        if (r == 0.0 && g == 1.0 && b == 0.0) return (char*)"textures/green_ball_texture.jpg";  // Zielona kula
+        if (r == 0.0 && g == 0.0 && b == 1.0) return (char*)"textures/blue_ball_texture.jpg";   // Niebieska kula
+        if (r == 1.0 && g == 1.0 && b == 0.0) return (char*)"textures/yellow_ball_texture.jpg"; // ¯ó³ta kula
+        if (r == 1.0 && g == 0.0 && b == 1.0) return (char*)"textures/purple_ball_texture.jpg"; // Fioletowa kula
+        if (r == 0.0 && g == 1.0 && b == 1.0) return (char*)"textures/orange_ball_texture.jpg"; // Pomarañczowa kula
+        if (r == 0.5 && g == 0.5 && b == 0.5) return (char*)"textures/brown_ball_texture.jpg";  // Br¹zowa kula
     }
     if (hasStripe) {
         // Dla kul z paskiem dodaj prefiks 'st_' przed kolorem
-        if (r == 0.5 && g == 0.5 && b == 1.0) return "textures/st_blue_ball_texture.jpg";   // Niebieska z paskiem
-        if (r == 1.0 && g == 0.0 && b == 1.0) return "textures/st_yellow_ball_texture.jpg"; // ¯ó³ta z paskiem
-        if (r == 0.0 && g == 1.0 && b == 0.0) return "textures/st_red_ball_texture.jpg";    // Czerwona z paskiem
-        if (r == 1.0 && g == 0.0 && b == 0.0) return "textures/st_green_ball_texture.jpg";  // Zielona z paskiem
-        if (r == 0.0 && g == 0.0 && b == 1.0) return "textures/st_blue_ball_texture.jpg";   // Niebieska z paskiem
-        if (r == 0.0 && g == 0.5 && b == 0.5) return "textures/st_orange_ball_texture.jpg"; // Pomarañczowa z paskiem
-        if (r == 0.5 && g == 0.0 && b == 0.0) return "textures/st_purple_ball_texture.jpg"; // Fioletowa z paskiem
-        if (r == 0.5 && g == 0.5 && b == 0.5) return "textures/st_brown_ball_texture.jpg";     // Br¹zowa z paskiem
+        if (r == 0.5 && g == 0.5 && b == 1.0) return (char*)"textures/st_blue_ball_texture.jpg";   // Niebieska z paskiem
+        if (r == 1.0 && g == 0.0 && b == 1.0) return (char*)"textures/st_yellow_ball_texture.jpg"; // ¯ó³ta z paskiem
+        if (r == 0.0 && g == 1.0 && b == 0.0) return (char*)"textures/st_red_ball_texture.jpg";    // Czerwona z paskiem
+        if (r == 1.0 && g == 0.0 && b == 0.0) return (char*)"textures/st_green_ball_texture.jpg";  // Zielona z paskiem
+        if (r == 0.0 && g == 0.0 && b == 1.0) return (char*)"textures/st_blue_ball_texture.jpg";   // Niebieska z paskiem
+        if (r == 0.0 && g == 0.5 && b == 0.5) return (char*)"textures/st_orange_ball_texture.jpg"; // Pomarañczowa z paskiem
+        if (r == 0.5 && g == 0.0 && b == 0.0) return (char*)"textures/st_purple_ball_texture.jpg"; // Fioletowa z paskiem
+        if (r == 0.5 && g == 0.5 && b == 0.5) return (char*)"textures/st_brown_ball_texture.jpg";     // Br¹zowa z paskiem
     }
-    return "textures/black_ball_texture.jpg";  // Kula 8 (czarna)
+    return (char*)"textures/black_ball_texture.jpg";  // Kula 8 (czarna)
 }
 
 // Funkcja do tworzenia kuli bilarda
@@ -979,6 +980,38 @@ int main(int argc, char* argv[])
   //SetUpCamera(renderer, 2, 2, 0);
   double position[3];
   renderer->GetActiveCamera()->GetPosition(position);
+
+  // Create five points.
+  double origin[3] = { std::get<0>(ballsTemp[0]), std::get<1>(ballsTemp[0]), std::get<2>(ballsTemp[0]) };
+  double p0[3] = { 1.0, 0.0, 0.20 };
+  double p1[3] = { 0.0, 1.0, 0.20 };
+  double p2[3] = { 0.0, 1.0, 0.20 };
+  double p3[3] = { 1.0, 2.0, 0.20 };
+
+  // Create a vtkPoints object and store the points in it
+  vtkNew<vtkPoints> pointsLine;
+  pointsLine->InsertNextPoint(origin);
+  pointsLine->InsertNextPoint(p0);
+  pointsLine->InsertNextPoint(p1);
+  pointsLine->InsertNextPoint(p2);
+  pointsLine->InsertNextPoint(p3);
+  // Create a polydata to store everything in
+  vtkNew<vtkPolyData> linesPolyData;
+  vtkNew<vtkCellArray> lines;
+  vtkNew<vtkActor> LineActor;
+  for (unsigned int i = 0; i < 3; i++)
+  {
+      vtkNew<vtkLine> line;
+      line->GetPointIds()->SetId(0, i);
+      line->GetPointIds()->SetId(1, i + 1);
+      lines->InsertNextCell(line);
+  }
+  LineActor->GetProperty()->SetLineWidth(4);
+  LineActor->GetProperty()->SetColor(1.0, 0.0, 0.0);
+
+  renderer->AddActor(LineActor);
+
+
   // Wyœwietlenie pozycji kamery za pomoc¹ qDebug
       // Wyœwietlenie pozycji kamery za pomoc¹ qDebug
   QString message = QString("Pozycja kamery: x = %1, y = %2, z = %3")
@@ -1021,20 +1054,34 @@ int main(int argc, char* argv[])
   mainWindow.show();
   QTimer timer; 
   double pushPower = 1.00;
-  double ballSpeedX = 0.500 * pushPower;
+  double ballSpeedX = 0.800 * pushPower;
   double ballSpeedY = 0.000 * pushPower;
   bool isHoled = false;
 
   balls[0]->setSpeed(ballSpeedX, ballSpeedY);
   balls[0]->setPower(pushPower);
+
   qDebug("Game start...");
   QObject::connect(&timer, &QTimer::timeout, [&]() {
       // Pobierz bie¿¹c¹ pozycjê kuli
 
-      bool allBallsStopped = true;
+      
       // Pauza na 500 ms (pozwala na obserwacjê efektów)
       QCoreApplication::processEvents();
-      QThread::msleep(100); // Wstrzymanie na 500 ms
+      QThread::msleep(1000); // Wstrzymanie na 500 ms
+
+      
+      vtkRenderWidget->renderWindow()->Render();
+
+      });
+
+  timer.start(16); // Uruchom timer z interwa³em ~60 FPS (16 ms)
+
+
+  QTimer PhysicTimer;
+  QObject::connect(&PhysicTimer, &QTimer::timeout, [&]() {
+
+      bool allBallsStopped = true;
       for (Ball* ball : balls) {
           ball->updatePosition(); // Aktualizacja ka¿dej kuli z kamer¹
       }
@@ -1052,15 +1099,14 @@ int main(int argc, char* argv[])
               }
           }
       }
-      if (allBallsStopped){
-        camera->SetFocalPoint(balls[0]->ballActor->GetPosition());
+      if (allBallsStopped) {
+          camera->SetFocalPoint(balls[0]->ballActor->GetPosition());
+
+
+
       }
-      vtkRenderWidget->renderWindow()->Render();
-
       });
-
-  timer.start(16); // Uruchom timer z interwa³em ~60 FPS (16 ms)
-
+  PhysicTimer.start(1);
   return app.exec();
 }
 
