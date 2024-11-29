@@ -70,7 +70,8 @@
 #include <vtkTextActor.h>
 #include <vtkTextProperty.h>
 #include <vtkline.h>
-
+#include <algorithm>
+#include <QKeyEvent>
 namespace
 {
     
@@ -114,7 +115,14 @@ const double hole4[2] = { width / 15.75, height / 7.75 }; // Czwórka
 const double hole5[2] = { width / 2, height / 7.75 }; // Pi¹tka
 const double hole6[2] = { width - width / 15.75, height / 7.75 }; // Szóstka
 const double ballRadius = 0.15;
-
+double maxSpeedX = 0.300;  // Maksymalna prêdkoœæ
+double maxSpeedY = 0.300;
+bool StickShot = false;
+double ShotSpeedX = 0.00;
+double ShotSpeedY = 0.00;
+double velocityAngle = 0.0;
+double shotSpeedMagnitude = 0.1;
+bool allBallsStopped = true;
 /////// RUCH 
 // Funkcja sprawdzaj¹ca, czy kula wpad³a do którejkolwiek z dziurek
 
@@ -122,7 +130,12 @@ auto distanceCheck = [](double x1, double y1, double x2, double y2) {
     return sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
     };
 
-
+void processShot()
+{
+    // Obliczanie nowego wektora prêdkoœci z k¹ta
+    ShotSpeedX = shotSpeedMagnitude * std::cos(velocityAngle);  // Nowa prêdkoœæ X po obrocie
+    ShotSpeedY = shotSpeedMagnitude * std::sin(velocityAngle);  // Nowa prêdkoœæ Y po obrocie
+}
 
 void SetUpCamera(vtkSmartPointer<vtkRenderer> renderer, double width, double height, double z)
 {
@@ -231,6 +244,15 @@ public:
 
     CameraInteractorStyle() : IsDrag(false), IsSelected(false), trackedActor(nullptr) {}
 
+    virtual void OnChar() override
+    {
+        const char* key = this->GetInteractor()->GetKeySym();
+        //Disable vtk processing of 'e' press
+        if (strcmp(key, "w") == 0)
+        {
+            vtkInteractorStyle::OnKeyPress();
+        }
+    }
 
     void OnKeyDown() override
     {
@@ -239,6 +261,7 @@ public:
         vtkRenderWindowInteractor* interactor = this->GetInteractor();
         vtkRenderer* renderer = interactor->GetRenderWindow()->GetRenderers()->GetFirstRenderer();
         // Obs³uga prawej strza³ki
+
         if (key == "Right")
         {
             double angle = 5;
@@ -257,6 +280,25 @@ public:
             {
                 auto cameraAnimation = new SmoothCameraRotation(renderer, interactor, angle);
                 cameraAnimation->Start();
+            }
+        }
+		if (key == "a")
+		{
+            velocityAngle -= 0.025;
+			qDebug() << "a";
+		}
+        if (key == "d")
+        {
+            velocityAngle -= 0.025;
+            qDebug() << "d";
+        }
+        if (allBallsStopped)
+        {
+            if (key == "w")
+            {
+                processShot();
+                qDebug() << "w";
+                StickShot = true;
             }
         }
         // Wywo³anie oryginalnej implementacji (opcjonalne)
@@ -458,25 +500,20 @@ public:
     vtkSmartPointer<vtkActor> ballActor;
     double ballSpeedX = 0.0;
     double ballSpeedY = 0.0;
-    double pushPower = 1.0;
     int id;
     bool isHoled = false;
+
     Ball(vtkSmartPointer<vtkActor> actor, int id, double  ballSpeedX, double  ballSpeedY, double  pushPower)
     {
         this->id = id;
         this->ballActor = actor;
         this->ballSpeedX = ballSpeedX;
         this->ballSpeedY = ballSpeedY;
-        this->pushPower = pushPower;
     }
 
     void setIsHoled(bool isHoled)
     {
         this->isHoled = isHoled;
-    }
-    void setPower(double power)
-    {
-        this->pushPower = power;
     }
     void setSpeed(double speedX, double speedY)
     {
@@ -484,8 +521,10 @@ public:
         this->ballSpeedY = speedY;
     }
 
-    void updatePosition()
+    
+    void updatePosition(double deltaTime)
     {
+
         double position[3];
         double normalX, normalY;
         ballActor->GetPosition(position);
@@ -505,8 +544,13 @@ public:
         if (normalX != 0.0 || normalY != 0.0) {
             reflectBall(ballSpeedX, ballSpeedY, normalX, normalY, isHoled);
         }
-        position[0] += ballSpeedX;
-        position[1] += ballSpeedY;
+
+        //double speed = std::sqrt(ballSpeedX * ballSpeedX + ballSpeedY * ballSpeedY);
+
+        // Zaktualizowanie pozycji na podstawie prêdkoœci
+        position[0] = position[0] + ballSpeedX ;
+        position[1] = position[1] + ballSpeedY;
+        
 
         // Zatrzymywanie siê kuli po osi¹gniêciu niskiej prêdkoœci (minimalna prêdkoœæ)
         if (fabs(ballSpeedX) < 0.0005 && fabs(ballSpeedY) < 0.0005) {
@@ -515,6 +559,9 @@ public:
             //camera->SetFocalPoint(ballActors[0]->GetPosition());
         }
         ballActor->SetPosition(position);
+        
+        // Aktualizacja poprzednich pozycji dla interpolacji w nastêpnej klatce
+        
     }
 
 
@@ -671,7 +718,8 @@ public:
         double dx = pos2[0] - pos1[0];
         double dy = pos2[1] - pos1[1];
         double distance = std::sqrt(dx * dx + dy * dy);
-        double radiusSum = ballRadius + ballRadius;
+		double additionalMargin = 0.0155;
+        double radiusSum = ballRadius + ballRadius + additionalMargin;
 
         // Je¿eli kule siê przecinaj¹
         if (distance <= radiusSum && distance > 1e-5) {
@@ -685,30 +733,31 @@ public:
 
             //// Normalizujemy wektor MTD
             double mtdLength = std::sqrt(mtdX * mtdX + mtdY * mtdY);
-            double mtdNormalizedX = mtdX / mtdLength;
-            double mtdNormalizedY = mtdY / mtdLength;
+            if (mtdLength > 0.0) {
+                double mtdNormalizedX = mtdX / mtdLength;
+                double mtdNormalizedY = mtdY / mtdLength;
 
-            //// Obliczanie prêdkoœci w kierunku normalnym (dot product)
-            double vn = vx * mtdNormalizedX + vy * mtdNormalizedY;
+                //// Obliczanie prêdkoœci w kierunku normalnym (dot product)
+                double vn = vx * mtdNormalizedX + vy * mtdNormalizedY;
 
-            //// Jeœli kule siê oddalaj¹, nie ma kolizji
-            if (vn < 0.0) return;
+                //// Jeœli kule siê oddalaj¹, nie ma kolizji
+                if (vn < 0.0) return;
 
-            //// Wspó³czynnik restitucji (1 = idealna kolizja sprê¿ysta)
-            const double restitution = 0.93;
+                //// Wspó³czynnik restitucji (1 = idealna kolizja sprê¿ysta)
+                const double restitution = 0.99;
 
-            //// Impuls kolizji
-            double i = -(1.0 + restitution) * vn / 2;
-            double impulseX = mtdNormalizedX * i;
-            double impulseY = mtdNormalizedY * i;
+                //// Impuls kolizji
+                double i = -(1.0 + restitution) * vn / 2;
+                double impulseX = mtdNormalizedX * i;
+                double impulseY = mtdNormalizedY * i;
 
-            // Zmiana pêdu
-            this->ballSpeedX += impulseX;
-            this->ballSpeedY += impulseY;
-            otherBall.ballSpeedX -= impulseX;
-            otherBall.ballSpeedY -= impulseY;
-            this->updatePosition();
-            otherBall.updatePosition();
+                // Zmiana pêdu
+                this->ballSpeedX += impulseX;
+                this->ballSpeedY += impulseY;
+                otherBall.ballSpeedX -= impulseX;
+                otherBall.ballSpeedY -= impulseY;
+
+            }
         }
     }
 };
@@ -718,12 +767,17 @@ public:
 std::vector<Ball*> balls;
 
 
+
+
+
 int main(int argc, char* argv[])
 {
   QSurfaceFormat::setDefaultFormat(QVTKOpenGLNativeWidget::defaultFormat());
   QApplication app(argc, argv);
 
   
+
+
   QMainWindow mainWindow;
   mainWindow.setWindowTitle("Bilard Game");
   mainWindow.resize(800, 800);
@@ -1053,39 +1107,37 @@ int main(int argc, char* argv[])
   window->Render();
   mainWindow.show();
   QTimer timer; 
-  double pushPower = 1.00;
-  double ballSpeedX = 0.800 * pushPower;
-  double ballSpeedY = 0.000 * pushPower;
-  bool isHoled = false;
+  QElapsedTimer elapsedTimer;
+  double delta = 0;
 
-  balls[0]->setSpeed(ballSpeedX, ballSpeedY);
-  balls[0]->setPower(pushPower);
+  double ballSpeedX = 0.000;
+  double ballSpeedY = 0.000;
+  bool isHoled = false;
+  double limitedSpeedX = std::clamp(ShotSpeedX, 0.0, maxSpeedX);
+  double limitedSpeedY = std::clamp(ShotSpeedY, 0.0, maxSpeedY);
+
+
+  // Jeœli prêdkoœæ zosta³a ograniczona, przeskaluj wektor prêdkoœci
+  //if (ballSpeedX > maxSpeedX) {
+  //    ballSpeedX = limitedSpeedX;
+  //}
+  //if (ballSpeedY > maxSpeedY) {
+  //    ballSpeedX = limitedSpeedX;
+  //}
+  //balls[0]->setSpeed(ballSpeedX, ballSpeedY);
 
   qDebug("Game start...");
   QObject::connect(&timer, &QTimer::timeout, [&]() {
       // Pobierz bie¿¹c¹ pozycjê kuli
-
+      delta = elapsedTimer.elapsed() / 1000.f;
       
       // Pauza na 500 ms (pozwala na obserwacjê efektów)
-      QCoreApplication::processEvents();
-      QThread::msleep(1000); // Wstrzymanie na 500 ms
-
-      
-      vtkRenderWidget->renderWindow()->Render();
-
-      });
-
-  timer.start(16); // Uruchom timer z interwa³em ~60 FPS (16 ms)
-
-
-  QTimer PhysicTimer;
-  QObject::connect(&PhysicTimer, &QTimer::timeout, [&]() {
-
-      bool allBallsStopped = true;
+      //QCoreApplication::processEvents();
+      //QThread::msleep(300); // Wstrzymanie na 500 ms
+      allBallsStopped = true;
       for (Ball* ball : balls) {
-          ball->updatePosition(); // Aktualizacja ka¿dej kuli z kamer¹
+          ball->updatePosition(delta); // Aktualizacja ka¿dej kuli z kamer¹
       }
-
       for (size_t i = 0; i < balls.size(); i++) {
           if (!(balls[i]->ballSpeedX == 0.00 && balls[i]->ballSpeedY == 0.00))
           {
@@ -1101,12 +1153,30 @@ int main(int argc, char* argv[])
       }
       if (allBallsStopped) {
           camera->SetFocalPoint(balls[0]->ballActor->GetPosition());
+          if (ShotSpeedX > maxSpeedX) {
+              ShotSpeedX = limitedSpeedX;
+          }
+          if (ShotSpeedY > maxSpeedY) {
+              ShotSpeedY = limitedSpeedY;
+          }
+          if (StickShot)
+          {
+              balls[0]->setSpeed(ShotSpeedX, ShotSpeedY);
+			  StickShot = false;
+			  velocityAngle = 0;
 
 
+          }
+          
+		  
 
       }
+      vtkRenderWidget->renderWindow()->Render();
+
       });
-  PhysicTimer.start(1);
+
+  timer.start(16); // Uruchom timer z interwa³em ~60 FPS (16 ms)
+
   return app.exec();
 }
 
