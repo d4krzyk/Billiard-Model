@@ -2,14 +2,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #define _USE_MATH_DEFINES
 #include <QVTKOpenGLNativeWidget.h>
-#include <vtkActor.h>
-#include <vtkDataSetMapper.h>
-#include <vtkDoubleArray.h>
-#include <vtkGenericOpenGLRenderWindow.h>
-#include <vtkPointData.h>
-#include <vtkProperty.h>
-#include <vtkRenderer.h>
-#include <vtkSphereSource.h>
 #include <QApplication>
 #include <QDockWidget>
 #include <QGridLayout>
@@ -18,6 +10,19 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QVBoxLayout>
+#include <QDebug>
+#include <QSurfaceFormat>
+#include <QTimer>
+#include <QKeyEvent>
+#include <qthread.h>
+#include <vtkActor.h>
+#include <vtkDataSetMapper.h>
+#include <vtkDoubleArray.h>
+#include <vtkGenericOpenGLRenderWindow.h>
+#include <vtkPointData.h>
+#include <vtkProperty.h>
+#include <vtkRenderer.h>
+#include <vtkSphereSource.h>
 #include <vtkQuad.h>
 #include <vtkNew.h>
 #include <vtkLight.h>
@@ -27,7 +32,6 @@
 #include <vtkPolyData.h>
 #include <vtkFloatArray.h>
 #include <vtkPoints.h>
-#include <qthread.h>
 #include <vtkCellArray.h>
 #include <vtkTriangle.h>
 #include <vtkPolyDataMapper.h>
@@ -39,42 +43,31 @@
 #include <vtkJPEGReader.h>
 #include <vtkPNGReader.h>
 #include <vtkImageData.h>
-#include <vtkActor.h>
-#include <vtkRenderer.h>
-#include <vtkCellArray.h>
-#include <vtkGenericOpenGLRenderWindow.h>
-#include <QVTKOpenGLNativeWidget.h>
 #include <vtkRenderWindowInteractor.h>
 #include <vtkCallbackCommand.h>
-#include <cmath>
-#include <cstdlib>
-#include <random>
 #include <vtkRendererCollection.h>
 #include <vtkPolygon.h>
-#include <vtkNamedColors.h>
 #include <vtkVertexGlyphFilter.h>
-#include <vtkJPEGReader.h>
 #include <vtkImageReader2Factory.h>
 #include <vtkSmoothPolyDataFilter.h>
 #include <vtkCubeSource.h>
-#include <vtkTextureMapToSphere.h>
-#include <vtkTexturedSphereSource.h>
 #include <vtkCamera.h>
 #include <vtkTransformPolyDataFilter.h>
 #include <vtkBoxWidget.h>
 #include <vtkInteractorStyleTrackballCamera.h>
-#include <QDebug>
-#include <QSurfaceFormat>
-#include <QTimer>
+#include <vtkLookupTable.h>
 #include <vtkCellPicker.h>
 #include <vtkTextActor.h>
 #include <vtkCylinderSource.h>
 #include <vtkTextProperty.h>
 #include <vtkline.h>
 #include <algorithm>
-#include <QKeyEvent>
-#include <vtkLookupTable.h>
 #include <tuple>
+#include <iomanip>
+#include <sstream>
+#include <cmath>
+#include <cstdlib>
+#include <random>
 namespace
 {
     
@@ -101,8 +94,11 @@ namespace
 // Zmienna globalna dla vtkActor
 vtkSmartPointer<vtkActor> TableActor = vtkSmartPointer<vtkActor>::New();
 std::vector<vtkSmartPointer<vtkActor>> ballActors;
-
-
+vtkSmartPointer<vtkTextActor> textActorScore = vtkSmartPointer<vtkTextActor>::New();
+vtkSmartPointer<vtkTextActor> GameOverActor = vtkSmartPointer<vtkTextActor>::New();
+vtkSmartPointer<vtkTextActor> ShotPowerActor = vtkSmartPointer<vtkTextActor>::New();
+int SCORE = 0;
+bool GameIsOver = false;
 double width = 10.0;  // Szerokoœæ p³aszczyzny
 double height = 5.0;   // Wysokoœæ p³aszczyzny
 const double minX = width / 15.75;  // Minimalna dopuszczalna pozycja X
@@ -126,7 +122,7 @@ bool StickShot = false;
 double ShotSpeedX = 0.00;
 double ShotSpeedY = 0.00;
 double velocityAngle = 0.0;
-double shotSpeedMagnitude = 0.15;
+double shotSpeedMagnitude = 0.16;
 bool allBallsStopped = true;
 bool isWhiteBallOnTable = true;
 double gradientLength = 3.0; // D³ugoœæ gradientu
@@ -137,16 +133,39 @@ auto distanceCheck = [](double x1, double y1, double x2, double y2) {
     return sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
     };
 
+// Funkcja do generowania œcie¿ki do tekstury
+char* getTexturePath(double r, double g, double b, bool hasStripe) {
+    // Kolory kul (w formacie RGB)
+    if (!hasStripe) {
+        if (r == 1.0 && g == 1.0 && b == 1.0) return (char*)"textures/white_ball_texture.jpg";  // Bia³a kula
+        if (r == 1.0 && g == 0.0 && b == 0.0) return (char*)"textures/red_ball_texture.jpg";    // Czerwona kula
+        if (r == 0.0 && g == 1.0 && b == 0.0) return (char*)"textures/green_ball_texture.jpg";  // Zielona kula
+        if (r == 0.0 && g == 0.0 && b == 1.0) return (char*)"textures/blue_ball_texture.jpg";   // Niebieska kula
+        if (r == 1.0 && g == 1.0 && b == 0.0) return (char*)"textures/yellow_ball_texture.jpg"; // ¯ó³ta kula
+        if (r == 1.0 && g == 0.0 && b == 1.0) return (char*)"textures/purple_ball_texture.jpg"; // Fioletowa kula
+        if (r == 0.0 && g == 1.0 && b == 1.0) return (char*)"textures/orange_ball_texture.jpg"; // Pomarañczowa kula
+        if (r == 0.5 && g == 0.5 && b == 0.5) return (char*)"textures/brown_ball_texture.jpg";  // Br¹zowa kula
+    }
+    if (hasStripe) {
+        // Dla kul z paskiem dodaj prefiks 'st_' przed kolorem
+        if (r == 0.5 && g == 0.5 && b == 1.0) return (char*)"textures/st_blue_ball_texture.jpg";   // Niebieska z paskiem
+        if (r == 1.0 && g == 0.0 && b == 1.0) return (char*)"textures/st_yellow_ball_texture.jpg"; // ¯ó³ta z paskiem
+        if (r == 0.0 && g == 1.0 && b == 0.0) return (char*)"textures/st_red_ball_texture.jpg";    // Czerwona z paskiem
+        if (r == 1.0 && g == 0.0 && b == 0.0) return (char*)"textures/st_green_ball_texture.jpg";  // Zielona z paskiem
+        if (r == 0.0 && g == 0.0 && b == 1.0) return (char*)"textures/st_blue_ball_texture.jpg";   // Niebieska z paskiem
+        if (r == 0.0 && g == 0.5 && b == 0.5) return (char*)"textures/st_orange_ball_texture.jpg"; // Pomarañczowa z paskiem
+        if (r == 0.5 && g == 0.0 && b == 0.0) return (char*)"textures/st_purple_ball_texture.jpg"; // Fioletowa z paskiem
+        if (r == 0.5 && g == 0.5 && b == 0.5) return (char*)"textures/st_brown_ball_texture.jpg";     // Br¹zowa z paskiem
+    }
+    return (char*)"textures/black_ball_texture.jpg";  // Kula 8 (czarna)
+}
+
 void processShot()
 {
     // Obliczanie nowego wektora prêdkoœci z k¹ta
     ShotSpeedX = shotSpeedMagnitude * std::cos(velocityAngle);  // Nowa prêdkoœæ X po obrocie
     ShotSpeedY = shotSpeedMagnitude * std::sin(velocityAngle);  // Nowa prêdkoœæ Y po obrocie
 }
-
-
-
-
 
 void SetUpCamera(vtkSmartPointer<vtkRenderer> renderer, double width, double height, double z)
 {
@@ -314,22 +333,22 @@ public:
 		{
             velocityAngle += 0.02;
             processShot();
-			qDebug() << "a";
+			//qDebug() << "a";
 		}
         if (key == "d")
         {
             velocityAngle -= 0.02;
             processShot();
-            qDebug() << "d";
+            //qDebug() << "d";
         }
 		if (key == "s")
 		{
             if (shotSpeedMagnitude > 0.02)
             {
-                shotSpeedMagnitude -= 0.01;
+                shotSpeedMagnitude -= 0.0005;
                 processShot();
                 
-                qDebug() << "s";
+                //qDebug() << "s";
             }
 			
 		}
@@ -337,9 +356,9 @@ public:
         {
             if (shotSpeedMagnitude < maxSpeedX)
             {
-                shotSpeedMagnitude += 0.01;
+                shotSpeedMagnitude += 0.0005;
                 processShot();
-                qDebug() << "w";
+                //qDebug() << "w";
             }
         }
         if (allBallsStopped)
@@ -347,7 +366,7 @@ public:
             if (key == "f")
             {
                 processShot();
-                qDebug() << "f";
+                //qDebug() << "f";
                 StickShot = true;
             }
         }
@@ -373,8 +392,9 @@ public:
 
                     double pos[2];
                     pickedActor->GetPosition(pos);
-                    if (pos[1] < 0)
+                    if (pos[2] > 2.00 && !isWhiteBallOnTable && allBallsStopped)
                     {
+                        
                         this->trackedActor = pickedActor;
                         this->IsSelected = true;
                         std::cout << "Wybor miejsca dla kuli" << std::endl;
@@ -426,7 +446,7 @@ public:
                     {
                         this->trackedActor->SetPosition(pickedPos[0], pickedPos[1], 0.15);  // Z ustawiony na 0.15
                         vtkSmartPointer<vtkCamera> camera = renderer->GetActiveCamera();
-                        camera->SetFocalPoint(pickedPos[0], pickedPos[1], 0.15);
+                        camera->SetFocalPoint(pickedPos[0], pickedPos[1], 0.25);
 						isWhiteBallOnTable = true;
                         this->trackedActor->GetProperty()->SetColor(1.0, 1.0, 1.0);   // Kolor poœwiaty (¿ó³ty)
                         this->trackedActor->GetProperty()->SetOpacity(1.0);          // Przezroczystoœæ
@@ -457,34 +477,6 @@ private:
 
 // Definicja metody New, by poprawnie tworzyæ obiekt
 vtkStandardNewMacro(CameraInteractorStyle);
-
-
-// Funkcja do generowania œcie¿ki do tekstury
-char* getTexturePath(double r, double g, double b, bool hasStripe) {
-    // Kolory kul (w formacie RGB)
-    if (!hasStripe) {
-        if (r == 1.0 && g == 1.0 && b == 1.0) return (char*)"textures/white_ball_texture.jpg";  // Bia³a kula
-        if (r == 1.0 && g == 0.0 && b == 0.0) return (char*)"textures/red_ball_texture.jpg";    // Czerwona kula
-        if (r == 0.0 && g == 1.0 && b == 0.0) return (char*)"textures/green_ball_texture.jpg";  // Zielona kula
-        if (r == 0.0 && g == 0.0 && b == 1.0) return (char*)"textures/blue_ball_texture.jpg";   // Niebieska kula
-        if (r == 1.0 && g == 1.0 && b == 0.0) return (char*)"textures/yellow_ball_texture.jpg"; // ¯ó³ta kula
-        if (r == 1.0 && g == 0.0 && b == 1.0) return (char*)"textures/purple_ball_texture.jpg"; // Fioletowa kula
-        if (r == 0.0 && g == 1.0 && b == 1.0) return (char*)"textures/orange_ball_texture.jpg"; // Pomarañczowa kula
-        if (r == 0.5 && g == 0.5 && b == 0.5) return (char*)"textures/brown_ball_texture.jpg";  // Br¹zowa kula
-    }
-    if (hasStripe) {
-        // Dla kul z paskiem dodaj prefiks 'st_' przed kolorem
-        if (r == 0.5 && g == 0.5 && b == 1.0) return (char*)"textures/st_blue_ball_texture.jpg";   // Niebieska z paskiem
-        if (r == 1.0 && g == 0.0 && b == 1.0) return (char*)"textures/st_yellow_ball_texture.jpg"; // ¯ó³ta z paskiem
-        if (r == 0.0 && g == 1.0 && b == 0.0) return (char*)"textures/st_red_ball_texture.jpg";    // Czerwona z paskiem
-        if (r == 1.0 && g == 0.0 && b == 0.0) return (char*)"textures/st_green_ball_texture.jpg";  // Zielona z paskiem
-        if (r == 0.0 && g == 0.0 && b == 1.0) return (char*)"textures/st_blue_ball_texture.jpg";   // Niebieska z paskiem
-        if (r == 0.0 && g == 0.5 && b == 0.5) return (char*)"textures/st_orange_ball_texture.jpg"; // Pomarañczowa z paskiem
-        if (r == 0.5 && g == 0.0 && b == 0.0) return (char*)"textures/st_purple_ball_texture.jpg"; // Fioletowa z paskiem
-        if (r == 0.5 && g == 0.5 && b == 0.5) return (char*)"textures/st_brown_ball_texture.jpg";     // Br¹zowa z paskiem
-    }
-    return (char*)"textures/black_ball_texture.jpg";  // Kula 8 (czarna)
-}
 
 // Funkcja do tworzenia kuli bilarda
 vtkSmartPointer<vtkActor> createBall(double x, double y, double z, double r, double g, double b, bool hasStripe) {
@@ -642,11 +634,10 @@ public:
         return 0;
     };
     void processBallInHole(double position[], double& ballSpeedX, double& ballSpeedY, bool& isHoled, int id) {
-
         if (isInHole(position[0], position[1]) != 0) {
-            if (id == 0)
-            {
+            if (id == 0){                
                 isWhiteBallOnTable = false;
+
             }
             isHoled = true;
             int holeNumber = isInHole(position[0], position[1]);
@@ -673,8 +664,24 @@ public:
                 //qDebug() << "Z:" << position[2];
             }
             else {
+                if (id == 0){
+                    position[0] = width / 2; position[1] = height / 2; position[2] = 2.8;
+                }
+                else{
 
-                position[0] = 0.3 + id * 0.35; position[1] = -0.35; position[2] = -0.5;
+                    if (id == 15)
+                    {
+                        GameOverActor->SetVisibility(1);
+						GameIsOver = true;
+                        position[0] = 0.3 + id * 0.35; position[1] = -0.35; position[2] = -0.5;
+                        return;
+                    }
+                    SCORE += 1;
+                    std::string scoreText = "SCORE: " + std::to_string(SCORE);
+                    textActorScore->SetInput(scoreText.c_str());
+                    position[0] = 0.3 + id * 0.35; position[1] = -0.35; position[2] = -0.5;
+                }
+                
                 isHoled = false;
             }
         }
@@ -1070,7 +1077,6 @@ public:
     }
 };
 
-
 // Funkcja do ustawiania pozycji i orientacji kija wzglêdem kuli
 void UpdateCueSetPosition(vtkActor* cueStickActor, double ballX, double ballY, double ballZ, double directionX, double directionY, double directionZ) {
     // Ustawienie odleg³oœci kija od kuli
@@ -1109,12 +1115,9 @@ int main(int argc, char* argv[])
   QSurfaceFormat::setDefaultFormat(QVTKOpenGLNativeWidget::defaultFormat());
   QApplication app(argc, argv);
 
-  
-
-
   QMainWindow mainWindow;
   mainWindow.setWindowTitle("Bilard Game");
-  mainWindow.resize(800, 800);
+  mainWindow.resize(1150, 800);
 
   qDebug("Wyswietlenie okna...");
   qDebug("Tworzenie widgetu renderowania...");
@@ -1133,8 +1136,6 @@ int main(int argc, char* argv[])
 
   vtkNew<vtkRenderer> renderer;
   window->AddRenderer(renderer);
-
-
   // Utwórz tekst
   vtkSmartPointer<vtkTextActor> textActor = vtkSmartPointer<vtkTextActor>::New();
   textActor->GetPositionCoordinate()->SetCoordinateSystemToNormalizedDisplay(); // Normalizowane wspó³rzêdne ekranu
@@ -1143,10 +1144,41 @@ int main(int argc, char* argv[])
   textActor->GetPositionCoordinate()->SetCoordinateSystemToNormalizedDisplay();
   renderer->AddActor(textActor);
   // Utwórz tekst
-  vtkSmartPointer<vtkTextActor> textActorScore = vtkSmartPointer<vtkTextActor>::New();
+
+  vtkSmartPointer<vtkTextActor> InstructionActor = vtkSmartPointer<vtkTextActor>::New();
+  InstructionActor->GetPositionCoordinate()->SetCoordinateSystemToNormalizedDisplay(); // Normalizowane wspó³rzêdne ekranu
+  InstructionActor->SetTextScaleModeToNone();
+  InstructionActor->GetTextProperty()->SetFontSize(12);
+  InstructionActor->SetPosition(0.01, 0.8);
+  // Tekst z instrukcjami do wyœwietlenia
+  std::string instructions =
+      "Instruction:\n\n"
+      "- Left Arrow: Rotate camera left\n"
+      "- Right Arrow: Rotate camera right\n"
+      "- W: Increase power\n"
+      "- S: Decrease power\n"
+      "- A: Change shot angle left\n"
+      "- D: Change shot angle right\n"
+      "- F: Shoot \n\n"
+      "- Left Mouse Button: Select white ball on fall\n"
+      "- Right Mouse Button: Select white ball position on fall\n"
+      "- Mouse Scroll: Zoom camera";
+
+  // Ustawienie tekstu
+  InstructionActor->SetInput(instructions.c_str());
+  // Ustawienie koloru tekstu na jasny (np. bia³y)
+  InstructionActor->GetTextProperty()->SetColor(1.0, 1.0, 1.0); // Bia³y kolor
+
+  // Efekt œwiecenia poprzez ustawienie koloru emisji
+  InstructionActor->GetTextProperty()->SetBold(1);
+  InstructionActor->GetPositionCoordinate()->SetCoordinateSystemToNormalizedDisplay();
+  renderer->AddActor(InstructionActor);
+
+
+
   textActorScore->GetPositionCoordinate()->SetCoordinateSystemToNormalizedDisplay(); // Normalizowane wspó³rzêdne ekranu
   textActorScore->SetTextScaleModeToNone();
-  textActorScore->SetInput("SCORE: 1000");
+  textActorScore->SetInput("SCORE: 0");
   textActorScore->SetPosition(0.8,0.01);
   textActorScore->GetTextProperty()->SetFontSize(24);
   // Ustawienie pozycji w prawym górnym rogu
@@ -1154,10 +1186,23 @@ int main(int argc, char* argv[])
   textActorScore->SetWidth(1.0);
   textActorScore->GetPositionCoordinate()->SetCoordinateSystemToNormalizedDisplay(); // Ustawienie na normalizowane wspó³rzêdne
 
-
-
   // Dodaj tekst do renderer
-  //renderer->AddActor2D(textActorScore);
+  renderer->AddActor2D(textActorScore);
+  renderer->AddActor2D(GameOverActor);
+  GameOverActor->SetInput("GAME OVER");
+  GameOverActor->SetPosition(0.3, 0.5);
+  GameOverActor->GetTextProperty()->SetFontSize(76);
+  GameOverActor->GetPositionCoordinate()->SetCoordinateSystemToNormalizedDisplay(); // Ustawienie na normalizowane wspó³rzêdne
+  GameOverActor->SetVisibility(0);
+  GameOverActor->GetTextProperty()->SetBold(1);
+  renderer->AddActor2D(ShotPowerActor);
+  int powerTextValue = shotSpeedMagnitude * 100;
+  powerTextValue = static_cast<int>(((powerTextValue - 1) / static_cast<double>(30 - 1)) * (100 - 1) + 1);
+  std::string PowerText = "Power: " + std::to_string(powerTextValue) +"%";
+  ShotPowerActor->SetInput(PowerText.c_str());
+  ShotPowerActor->SetPosition(0.8, 0.95);
+  ShotPowerActor->GetTextProperty()->SetFontSize(26);
+  ShotPowerActor->GetPositionCoordinate()->SetCoordinateSystemToNormalizedDisplay(); // Ustawienie na normalizowane wspó³rzêdne
 
   ////////////////////////////
   
@@ -1364,7 +1409,7 @@ int main(int argc, char* argv[])
 
   SetUpCamera(renderer, std::get<0>(ballsTemp[0]), std::get<1>(ballsTemp[0]), std::get<2>(ballsTemp[0]));
   vtkSmartPointer<vtkCamera> camera = renderer->GetActiveCamera();
-  camera->SetFocalPoint(std::get<0>(ballsTemp[0]), std::get<1>(ballsTemp[0]), 0.15);
+  camera->SetFocalPoint(std::get<0>(ballsTemp[0]), std::get<1>(ballsTemp[0]), 0.25);
   //SetUpCamera(renderer, 2, 2, 0);
   double position[3];
   renderer->GetActiveCamera()->GetPosition(position);
@@ -1481,15 +1526,19 @@ int main(int argc, char* argv[])
 
   double limitedSpeedX = std::max(0.0, std::min(ShotSpeedX, maxSpeedX));
   double limitedSpeedY = std::max(0.0, std::min(ShotSpeedY, maxSpeedY));
-
+  double cylinderCenterY = 3.2;
+  double changeCenterY = cylinderCenterY;
+  int frameEndCounter = 0; // Licznik klatek
+  size_t liftCounter = 0; // Indeks aktualnie unoszonej kuli
   qDebug("Game start...");
   QObject::connect(&timer, &QTimer::timeout, [&]() {
       // Pobierz bie¿¹c¹ pozycjê kuli
       delta = elapsedTimer.elapsed() / 1000.f;
       static bool increasing = true;
       static double opacity = 0.5;
-      if (!isWhiteBallOnTable)
+      if (!isWhiteBallOnTable && !GameIsOver)
       {
+		  camera->SetFocalPoint(balls[0]->ballActor->GetPosition()[0], balls[0]->ballActor->GetPosition()[1], 0.25);
           trajectoryActor->SetVisibility(0);
       }
       if (increasing) {
@@ -1502,9 +1551,6 @@ int main(int argc, char* argv[])
       }
 
       trajectoryActor->GetProperty()->SetOpacity(opacity);
-      // Pauza na 500 ms (pozwala na obserwacjê efektów)
-      //QCoreApplication::processEvents();
-      //QThread::msleep(300); // Wstrzymanie na 500 ms
       allBallsStopped = true;
       for (Ball* ball : balls) {
           ball->updatePosition(delta); // Aktualizacja ka¿dej kuli z kamer¹
@@ -1521,13 +1567,56 @@ int main(int argc, char* argv[])
                   balls[i]->handleCollision(*balls[j]);
               }
           }
+          if (GameIsOver)
+          {
+              camera->SetFocalPoint(width/2, height/2, 0.25);
+              frameEndCounter++;
+              if (frameEndCounter % 60 == 0) // Co pi¹ta klatka
+              {
+                  interactor->SetKeySym("Right");
+                  interactor->InvokeEvent(vtkCommand::KeyPressEvent);
+              }
+
+              if (frameEndCounter >= 10000) // Opcjonalny reset
+              {
+                  frameEndCounter = 0;
+              }
+              if (i == liftCounter) { // Tylko aktualnie unoszona kula
+                  double pos_heaven[3];
+                  ballActors[liftCounter]->GetPosition(pos_heaven);
+
+                  if (pos_heaven[2] < 5) { // Jeœli kula nie osi¹gnê³a koñcowej pozycji
+                      pos_heaven[2] += 0.025; // Stopniowe unoszenie
+                      ballActors[liftCounter]->SetPosition(pos_heaven);
+					  ballActors[liftCounter]->RotateY(2); 
+                      ballActors[liftCounter]->RotateZ(2); 
+                  }
+                  else {
+                      // Przechodzimy do kolejnej kuli
+                      liftCounter++;
+                      if (liftCounter >= balls.size()) {
+                          liftCounter = 0; // Reset po osi¹gniêciu ostatniej kuli
+                      }
+                  }
+              }
+			  
+          }
       }
-      if (allBallsStopped && isWhiteBallOnTable) {
+      if (allBallsStopped && isWhiteBallOnTable && !GameIsOver) {
+          
           trajectoryActor->SetVisibility(1);
           cueStickActor->SetVisibility(1);
+          double powerTextValue = shotSpeedMagnitude;
+          powerTextValue = ((powerTextValue - 0.02f) / (0.3f - 0.02f)) * (100 - 1) + 1;
+          // Tworzymy strumieñ, aby sformatowaæ float do 2 miejsc po przecinku
+          std::ostringstream oss;
+          oss << std::fixed << std::setprecision(2) << powerTextValue;
+          // Pobieramy wynik jako string
+          std::string PowerText = "Power: " + oss.str() + "%";
+          ShotPowerActor->SetInput(PowerText.c_str());
           balls[0]->ballActor->GetPosition(white_pos);
           UpdateCueSetPosition(cueStickActor, white_pos[0], white_pos[1], white_pos[2], 0, 0, -0.01);
-          camera->SetFocalPoint(balls[0]->ballActor->GetPosition());
+          camera->SetFocalPoint(balls[0]->ballActor->GetPosition()[0], balls[0]->ballActor->GetPosition()[1], 0.25);
           if (ShotSpeedX > maxSpeedX) {
               ShotSpeedX = limitedSpeedX;
           }
@@ -1537,16 +1626,24 @@ int main(int argc, char* argv[])
           trajectory.updateTrajectory(balls[0]->ballActor->GetPosition()[0], balls[0]->ballActor->GetPosition()[1], ShotSpeedX, ShotSpeedY);
           trajectory.updateGradient(shotSpeedMagnitude * shotSpeedMagnitude);
           if (StickShot)
-          {
-			  cueStickActor->SetVisibility(0);
-              trajectoryActor->SetVisibility(0);
-              balls[0]->setSpeed(ShotSpeedX, ShotSpeedY);
-			  StickShot = false;
-			  velocityAngle = 0;
-          }
-          
-		  
-
+          { 
+              if (changeCenterY > 2.1) {
+                  changeCenterY -= shotSpeedMagnitude;
+                  cylinder->SetCenter(0.0, changeCenterY, 0.0);
+              }
+              else
+              {
+                  cylinder->SetCenter(0.0, cylinderCenterY, 0.0);
+				  changeCenterY = cylinderCenterY;
+                  cueStickActor->SetVisibility(0);
+                  trajectoryActor->SetVisibility(0);
+                  balls[0]->setSpeed(ShotSpeedX, ShotSpeedY);
+                  StickShot = false;
+                  velocityAngle = 0;
+                  shotSpeedMagnitude = 0.16;
+              }
+			  
+          }            
       }
 
       vtkRenderWidget->renderWindow()->Render();
