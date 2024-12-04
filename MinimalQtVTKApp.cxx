@@ -68,10 +68,13 @@
 #include <QTimer>
 #include <vtkCellPicker.h>
 #include <vtkTextActor.h>
+#include <vtkCylinderSource.h>
 #include <vtkTextProperty.h>
 #include <vtkline.h>
 #include <algorithm>
 #include <QKeyEvent>
+#include <vtkLookupTable.h>
+#include <tuple>
 namespace
 {
     
@@ -98,6 +101,8 @@ namespace
 // Zmienna globalna dla vtkActor
 vtkSmartPointer<vtkActor> TableActor = vtkSmartPointer<vtkActor>::New();
 std::vector<vtkSmartPointer<vtkActor>> ballActors;
+
+
 double width = 10.0;  // Szerokoœæ p³aszczyzny
 double height = 5.0;   // Wysokoœæ p³aszczyzny
 const double minX = width / 15.75;  // Minimalna dopuszczalna pozycja X
@@ -121,8 +126,10 @@ bool StickShot = false;
 double ShotSpeedX = 0.00;
 double ShotSpeedY = 0.00;
 double velocityAngle = 0.0;
-double shotSpeedMagnitude = 0.1;
+double shotSpeedMagnitude = 0.15;
 bool allBallsStopped = true;
+bool isWhiteBallOnTable = true;
+double gradientLength = 3.0; // D³ugoœæ gradientu
 /////// RUCH 
 // Funkcja sprawdzaj¹ca, czy kula wpad³a do którejkolwiek z dziurek
 
@@ -136,6 +143,10 @@ void processShot()
     ShotSpeedX = shotSpeedMagnitude * std::cos(velocityAngle);  // Nowa prêdkoœæ X po obrocie
     ShotSpeedY = shotSpeedMagnitude * std::sin(velocityAngle);  // Nowa prêdkoœæ Y po obrocie
 }
+
+
+
+
 
 void SetUpCamera(vtkSmartPointer<vtkRenderer> renderer, double width, double height, double z)
 {
@@ -252,6 +263,23 @@ public:
         {
             vtkInteractorStyle::OnKeyPress();
         }
+		else if (strcmp(key, "s") == 0)
+		{
+			vtkInteractorStyle::OnKeyPress();
+		}
+		else if (strcmp(key, "a") == 0)
+		{
+			vtkInteractorStyle::OnKeyPress();
+		}
+		else if (strcmp(key, "d") == 0)
+		{
+			vtkInteractorStyle::OnKeyPress();
+		}
+		else if (strcmp(key, "f") == 0)
+		{
+			vtkInteractorStyle::OnKeyPress();
+		}
+
     }
 
     void OnKeyDown() override
@@ -284,20 +312,42 @@ public:
         }
 		if (key == "a")
 		{
-            velocityAngle -= 0.025;
+            velocityAngle += 0.02;
+            processShot();
 			qDebug() << "a";
 		}
         if (key == "d")
         {
-            velocityAngle -= 0.025;
+            velocityAngle -= 0.02;
+            processShot();
             qDebug() << "d";
+        }
+		if (key == "s")
+		{
+            if (shotSpeedMagnitude > 0.02)
+            {
+                shotSpeedMagnitude -= 0.01;
+                processShot();
+                
+                qDebug() << "s";
+            }
+			
+		}
+        if (key == "w")
+        {
+            if (shotSpeedMagnitude < maxSpeedX)
+            {
+                shotSpeedMagnitude += 0.01;
+                processShot();
+                qDebug() << "w";
+            }
         }
         if (allBallsStopped)
         {
-            if (key == "w")
+            if (key == "f")
             {
                 processShot();
-                qDebug() << "w";
+                qDebug() << "f";
                 StickShot = true;
             }
         }
@@ -377,6 +427,7 @@ public:
                         this->trackedActor->SetPosition(pickedPos[0], pickedPos[1], 0.15);  // Z ustawiony na 0.15
                         vtkSmartPointer<vtkCamera> camera = renderer->GetActiveCamera();
                         camera->SetFocalPoint(pickedPos[0], pickedPos[1], 0.15);
+						isWhiteBallOnTable = true;
                         this->trackedActor->GetProperty()->SetColor(1.0, 1.0, 1.0);   // Kolor poœwiaty (¿ó³ty)
                         this->trackedActor->GetProperty()->SetOpacity(1.0);          // Przezroczystoœæ
                         this->trackedActor->SetScale(1.00);
@@ -593,6 +644,10 @@ public:
     void processBallInHole(double position[], double& ballSpeedX, double& ballSpeedY, bool& isHoled, int id) {
 
         if (isInHole(position[0], position[1]) != 0) {
+            if (id == 0)
+            {
+                isWhiteBallOnTable = false;
+            }
             isHoled = true;
             int holeNumber = isInHole(position[0], position[1]);
             double temp_pos[2];
@@ -762,13 +817,292 @@ public:
     }
 };
 
-
-
 std::vector<Ball*> balls;
 
+class Trajectory {
+private:
+    vtkSmartPointer<vtkPoints> points;
+    vtkSmartPointer<vtkCellArray> lines;
+    vtkSmartPointer<vtkPolyData> trajectory;
+    vtkSmartPointer<vtkFloatArray> scalars;
+    int numPoints;
+    double length;
+public:
+    Trajectory() {
+        // Inicjalizacja trajektorii
+        points = vtkSmartPointer<vtkPoints>::New();
+        lines = vtkSmartPointer<vtkCellArray>::New();
+        trajectory = vtkSmartPointer<vtkPolyData>::New();
+        scalars = vtkSmartPointer<vtkFloatArray>::New();
+        length = 0.05; // D³ugoœæ linii
+        numPoints = 50; // Liczba punktów
+        for (int i = 0; i <= numPoints; ++i) {
+            double t = static_cast<double>(i) / numPoints; // Normalizowany wspó³czynnik (0.0 - 1.0)
+            double distance = t * length;
+            // Skalar oparty na gradientLength
+            double scalar = std::max(0.0, 1.0 - distance / gradientLength);
+            points->InsertNextPoint(distance, 0.0, 0.0);
+            scalars->InsertNextValue(scalar);
+            //scalars->InsertNextValue(1.0 - t); // Zanikanie od 1.0 do 0.0
+        }
+        trajectory->SetPoints(points);
+        trajectory->SetLines(lines);
+        trajectory->GetPointData()->SetScalars(scalars);
+    }
+    std::tuple<bool, double, double> getIntersectionPoint(double startX, double startY, double directionX, double directionY,
+        double ballX, double ballY) {
+        // Wektor trajektorii
+        double dx = directionX;
+        double dy = directionY;
+
+        // Normalizacja wektora kierunku (zapewnia poprawne obliczenia)
+        double magnitude = std::sqrt(dx * dx + dy * dy);
+        if (magnitude < 1e-8) {
+            return { false, 0.0, 0.0 }; // Niepoprawna trajektoria
+        }
+        dx /= magnitude;
+        dy /= magnitude;
+
+        // Wektor od punktu pocz¹tkowego trajektorii do œrodka kuli
+        double fx = startX - ballX;
+        double fy = startY - ballY;
+
+        // Suma promieni obu kul
+        double combinedRadius = ballRadius + ballRadius;
+
+        // Wspó³czynniki równania kwadratowego
+        double a = dx * dx + dy * dy;
+        double b = 2 * (fx * dx + fy * dy);
+        double c = fx * fx + fy * fy - combinedRadius * combinedRadius;
+
+        // Obliczanie delty
+        double delta = b * b - 4 * a * c;
+
+        if (delta < 0) {
+            return { false, 0.0, 0.0 };
+        }
+        
+        // Obliczanie pierwiastków równania kwadratowego
+        double sqrtDelta = std::sqrt(delta);
+        double t1 = (-b - sqrtDelta) / (2 * a);  // Wczeœniejszy punkt przeciêcia
+        double t2 = (-b + sqrtDelta) / (2 * a);  // PóŸniejszy punkt przeciêcia
+
+        // Wybieramy najmniejszy dodatni t (najbli¿szy punkt na trajektorii)
+        double t = t1 >= 0 ? t1 : t2;  // Wybierz najmniejszy dodatni t
+        if (t < 1e-4) {
+            return { false, 0.0, 0.0 };
+        }
+        if (t1 < 0 && t2 < 0) {
+            //std::cout << "Brak kolizji: oba t ujemne" << std::endl;
+        }
+        // Obliczanie wspó³rzêdnych punktu przeciêcia
+        double intersectionX = startX + t * dx;
+        double intersectionY = startY + t * dy;
+
+        // Sprawdzanie, czy punkt przeciêcia le¿y rzeczywiœcie w obrêbie kuli
+        double distSquared = (intersectionX - ballX) * (intersectionX - ballX) +
+            (intersectionY - ballY) * (intersectionY - ballY);
+
+        if (distSquared > 2*(ballRadius + 0.0155) * 2 * (ballRadius + 0.0155)) {
+            return { false, 0.0, 0.0 }; // Punkt le¿y poza kul¹
+        }
+
+        return { true, intersectionX, intersectionY };
+    }
+
+    void reflectTrajectoryFromBall(double& velocityX, double& velocityY, double ballX, double ballY, double startX, double startY) {
+        // Wektor normalny od œrodka kuli do punktu pocz¹tkowego trajektorii
+            double normalX = ballX - startX;
+            double normalY = ballY - startY;
+
+            // Normalizowanie wektora normalnego
+            double magnitude = std::sqrt(normalX * normalX + normalY * normalY);
+            if (magnitude != 0.0) {
+                normalX /= magnitude;
+                normalY /= magnitude;
+            }
+            if (magnitude <= 2 * ballRadius) {
+                // Obliczanie k¹ta miêdzy wektorem trajektorii a normaln¹
+                double dotProduct = velocityX * normalX + velocityY * normalY;
+                double normalMagnitude = std::sqrt(normalX * normalX + normalY * normalY);
+                double velocityMagnitude = std::sqrt(velocityX * velocityX + velocityY * velocityY);
+                double cosTheta = dotProduct / (normalMagnitude * velocityMagnitude);
+                double theta = std::acos(cosTheta);
+
+                // Obracamy wektor prêdkoœci o k¹t 2 * theta
+                double newVelocityX = velocityX * std::cos(2 * theta) - velocityY * std::sin(2 * theta);
+                double newVelocityY = velocityX * std::sin(2 * theta) + velocityY * std::cos(2 * theta);
+
+                // Zaktualizowanie prêdkoœci
+                velocityX = newVelocityX;
+                velocityY = newVelocityY;
+
+                // Mo¿esz dodaæ t³umienie
+                double restitution = restitutionCoefficient;
+                velocityX *= restitution;
+                velocityY *= restitution;
+
+                // Sprawdzanie poprawnoœci kierunku odbicia
+                double incomingAngle = std::atan2(velocityY, velocityX);
+                double normalAngle = std::atan2(normalY, normalX);
+                double outgoingAngle = std::atan2(-velocityY, -velocityX);
+
+                if (std::abs(incomingAngle - normalAngle) > M_PI / 2) {
+                    // Korygowanie kierunku odbicia
+                    velocityX = -velocityX;
+                    velocityY = -velocityY;
+                }
+            }
+
+        
+        
+    }
+    // Aktualizacja trajektorii w czasie rzeczywistym
+    void updateTrajectory(double startX, double startY, double forceX, double forceY) {
+        calculateTrajectory(startX, startY, forceX, forceY, 4, balls);
+		processShot();
+        this->trajectory->Modified();
+    }
+    // Obliczanie trajektorii
+    void calculateTrajectory(double startX, double startY, double directionX, double directionY,
+        int maxBounces, std::vector<Ball*> balls) {
+        this->points->Reset();
+        this->lines->Reset();
+
+        double currentX = startX;
+        double currentY = startY;
+        double velocityX = directionX;
+        double velocityY = directionY;
+		bool Colliding = false;
+        this->points->InsertNextPoint(currentX, currentY, 0.15); // Pocz¹tkowy punkt
+
+        for (int i = 0; i < maxBounces; ++i) {
+            // Sprawdzanie kolizji z ka¿d¹ kul¹
+            for (Ball* ball : balls) {
+                int id = ball->id;
+                if (id == 0) continue;
+                double position[3];
+                ball->ballActor->GetPosition(position);
+                bool collision;
+                double intersectionX, intersectionY;
+				std::tie(collision, intersectionX, intersectionY) = getIntersectionPoint(currentX, currentY, velocityX, velocityY, position[0], position[1]);
+                if (collision) {
+                    currentX = intersectionX;
+                    currentY = intersectionY;
+
+                    this->points->InsertNextPoint(currentX, currentY, 0.15);
+                    reflectTrajectoryFromBall(velocityX, velocityY, currentX, currentY, position[0], position[1]);
+
+                    currentX += velocityX;
+                    currentY += velocityY;
+                    this->points->InsertNextPoint(currentX, currentY, 0.15);
+					Colliding = true;
+                    break;
+                }
+            }
+			
+            // Obliczanie czasu do kolizji z ka¿d¹ œcian¹
+            double timeToVerticalWall = (velocityX > 0) ? (maxX - currentX) / velocityX
+                : (velocityX < 0) ? (minX - currentX) / velocityX
+                : std::numeric_limits<double>::max();
+            double timeToHorizontalWall = (velocityY > 0) ? (maxY - currentY) / velocityY
+                : (velocityY < 0) ? (minY - currentY) / velocityY
+                : std::numeric_limits<double>::max();
+
+            // Wybierz najbli¿sz¹ kolizjê
+            double timeToCollision = std::min(timeToVerticalWall, timeToHorizontalWall);
+            // Aktualizacja pozycji
+            currentX += velocityX * timeToCollision;
+            currentY += velocityY * timeToCollision;
+
+            // Dodanie punktu kolizji
+            this->points->InsertNextPoint(currentX, currentY, 0.15);
+
+            // Odbicie
+            if (timeToCollision == timeToVerticalWall) {
+                velocityX = -velocityX; // Odbicie od pionowej œciany
+            }
+            else {
+                velocityY = -velocityY; // Odbicie od poziomej œciany
+            }
+            if (Colliding)
+            {
+                break;
+            }
+        }
+
+        // Tworzenie linii miêdzy punktami
+        for (vtkIdType i = 0; i < this->points->GetNumberOfPoints() - 1; ++i) {
+            vtkSmartPointer<vtkLine> line = vtkSmartPointer<vtkLine>::New();
+            line->GetPointIds()->SetId(0, i);
+            line->GetPointIds()->SetId(1, i + 1);
+            this->lines->InsertNextCell(line);
+        }
+        vtkSmartPointer<vtkIdList> pointIds = vtkSmartPointer<vtkIdList>::New();
+        this->lines->GetNextCell(pointIds); // Pobierz liniê (mo¿e byæ u¿yte w pêtli)
+
+        for (vtkIdType i = 0; i < pointIds->GetNumberOfIds(); ++i) {
+            vtkIdType pointId = pointIds->GetId(i);
+            double point[3];
+            this->points->GetPoint(pointId, point);
+            qDebug() << "Linia zawiera punkt: (" << point[0] << ", " << point[1] << ", " << point[2] << ")";
+        }
+    }
 
 
+    void updateGradient(double newGradientLength) {
+        gradientLength = newGradientLength;
 
+        this->scalars->Reset(); // Wyczyœæ istniej¹ce wartoœci
+        for (int i = 0; i <= numPoints; ++i) {
+            double t = static_cast<double>(i) / numPoints;
+            double distance = t * length;
+            double scalar = std::max(0.0, 1.0 - distance / gradientLength);
+            scalars->InsertNextValue(scalar);
+        }
+
+        trajectory->GetPointData()->SetScalars(scalars);
+        trajectory->Modified(); // Zg³oœ modyfikacjê danych
+    }
+
+    vtkSmartPointer<vtkPolyData> getTrajectory() const {
+        return trajectory;
+    }
+};
+
+
+// Funkcja do ustawiania pozycji i orientacji kija wzglêdem kuli
+void UpdateCueSetPosition(vtkActor* cueStickActor, double ballX, double ballY, double ballZ, double directionX, double directionY, double directionZ) {
+    // Ustawienie odleg³oœci kija od kuli
+    double stickLength = 4.5; // D³ugoœæ kija
+    double offset = 1.00;      // Odleg³oœæ od œrodka kuli do koñca kija
+
+    // Pozycja startowa kija (na koñcu skierowanym do kuli)
+    double startX = ballX - directionX ;
+    double startY = ballY - directionY ;
+    double startZ = ballZ - directionZ ;
+
+    // Pozycja koñca kija
+    double endX = ballX - directionX ;
+    double endY = ballY - directionY ;
+    double endZ = ballZ - directionZ ;
+
+    // Obliczenie œrodka kija
+    double midX = (startX + endX) / 2.0 ;
+    double midY = (startY + endY) / 2.0 ;
+    double midZ = (startZ + endZ) / 2.0 ;
+
+    // Obliczenie orientacji kija
+    vtkSmartPointer<vtkTransform> transform = vtkSmartPointer<vtkTransform>::New();
+    transform->Translate(midX, midY, midZ );
+
+    // Obliczanie k¹ta obrotu kija
+    double velocityAngle = std::atan2(ShotSpeedY, ShotSpeedX) * 180.0 / M_PI;  // K¹t w stopniach
+    // Ustawienie orientacji kija wzglêdem prêdkoœci kuli
+    cueStickActor->SetOrientation(15.0, 0.0, velocityAngle + 90);  // K¹t obraca siê wokó³ osi Z
+    // Przypisz transformacjê do aktora kija
+    cueStickActor->SetUserTransform(transform);
+}
 
 int main(int argc, char* argv[])
 {
@@ -986,7 +1320,7 @@ int main(int argc, char* argv[])
   // Ustawienie kamery
   //SetUpCamera(renderer, width, height, 0.5);
 
-
+ 
 
   // Tworzenie obiektu reprezentuj¹cego pozycjê œwiat³a
   vtkSmartPointer<vtkSphereSource> lightPositionSphere = vtkSmartPointer<vtkSphereSource>::New();
@@ -1042,29 +1376,56 @@ int main(int argc, char* argv[])
   double p2[3] = { 0.0, 1.0, 0.20 };
   double p3[3] = { 1.0, 2.0, 0.20 };
 
-  // Create a vtkPoints object and store the points in it
-  vtkNew<vtkPoints> pointsLine;
-  pointsLine->InsertNextPoint(origin);
-  pointsLine->InsertNextPoint(p0);
-  pointsLine->InsertNextPoint(p1);
-  pointsLine->InsertNextPoint(p2);
-  pointsLine->InsertNextPoint(p3);
-  // Create a polydata to store everything in
-  vtkNew<vtkPolyData> linesPolyData;
-  vtkNew<vtkCellArray> lines;
-  vtkNew<vtkActor> LineActor;
-  for (unsigned int i = 0; i < 3; i++)
-  {
-      vtkNew<vtkLine> line;
-      line->GetPointIds()->SetId(0, i);
-      line->GetPointIds()->SetId(1, i + 1);
-      lines->InsertNextCell(line);
+
+  
+  // Tworzenie danych trajektorii
+  Trajectory trajectory = Trajectory();
+
+  vtkSmartPointer<vtkLookupTable> lut = vtkSmartPointer<vtkLookupTable>::New();
+  lut->SetNumberOfTableValues(256);
+  lut->SetRange(0.0, 1.0); // Zakres wartoœci skalarnych
+  for (int i = 0; i < 256; ++i) {
+      double t = static_cast<double>(i) / 255.0;
+      lut->SetTableValue(i, t, 1.0 - t, 1.0 - t, t); // Kolor czerwony z zanikanie przezroczystoœci
   }
-  LineActor->GetProperty()->SetLineWidth(4);
-  LineActor->GetProperty()->SetColor(1.0, 0.0, 0.0);
+  lut->Build();
+  // Mapper i aktor trajektorii
+  vtkSmartPointer<vtkPolyDataMapper> trajectoryMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+  trajectoryMapper->SetInputData(trajectory.getTrajectory());
+  trajectoryMapper->SetLookupTable(lut);
+  trajectoryMapper->SetScalarRange(0.0, 1.0); // Zakres wartoœci skalarnych
+  trajectoryMapper->UseLookupTableScalarRangeOn();
 
-  renderer->AddActor(LineActor);
 
+  vtkSmartPointer<vtkActor> trajectoryActor = vtkSmartPointer<vtkActor>::New();
+  trajectoryActor->SetMapper(trajectoryMapper);
+  trajectoryActor->GetProperty()->SetColor(0.65, 0.65, 0.65); // linia
+  trajectoryActor->GetProperty()->SetLineWidth(3.5);
+  // Ustawienia wygl¹du
+  trajectoryActor->GetProperty()->SetOpacity(0.5);              // Przezroczystoœæ
+  trajectoryActor->GetProperty()->SetAmbient(0.8);              // Œwiat³o otoczenia
+  trajectoryActor->GetProperty()->SetSpecular(1.0);             // Lœnienie
+  trajectoryActor->GetProperty()->SetSpecularPower(50);         // Intensywnoœæ lœnienia
+
+  // Dodanie aktora do sceny
+  renderer->AddActor(trajectoryActor);
+
+  // Tworzenie kija bilardowego
+  vtkSmartPointer<vtkCylinderSource> cylinder = vtkSmartPointer<vtkCylinderSource>::New();
+  cylinder->SetRadius(0.025);  // Promieñ kija
+  cylinder->SetHeight(4.5);  // D³ugoœæ kija
+  cylinder->SetResolution(50);
+  cylinder->Update();
+  cylinder->SetCenter(0.0, 3.0, 0.0);
+  vtkSmartPointer<vtkPolyDataMapper> cueStickMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+  cueStickMapper->SetInputConnection(cylinder->GetOutputPort());
+
+  vtkSmartPointer<vtkActor> cueStickActor = vtkSmartPointer<vtkActor>::New();
+  cueStickActor->SetMapper(cueStickMapper);
+  vtkSmartPointer<vtkNamedColors> colors = vtkSmartPointer<vtkNamedColors>::New();
+  cueStickActor->GetProperty()->SetColor(colors->GetColor3d("SaddleBrown").GetData());
+  // Dodanie aktorów do sceny
+  renderer->AddActor(cueStickActor);
 
   // Wyœwietlenie pozycji kamery za pomoc¹ qDebug
       // Wyœwietlenie pozycji kamery za pomoc¹ qDebug
@@ -1113,24 +1474,34 @@ int main(int argc, char* argv[])
   double ballSpeedX = 0.000;
   double ballSpeedY = 0.000;
   bool isHoled = false;
-  double limitedSpeedX = std::clamp(ShotSpeedX, 0.0, maxSpeedX);
-  double limitedSpeedY = std::clamp(ShotSpeedY, 0.0, maxSpeedY);
 
+  double white_pos[3];
+  balls[0]->ballActor->GetPosition(white_pos);
+  
 
-  // Jeœli prêdkoœæ zosta³a ograniczona, przeskaluj wektor prêdkoœci
-  //if (ballSpeedX > maxSpeedX) {
-  //    ballSpeedX = limitedSpeedX;
-  //}
-  //if (ballSpeedY > maxSpeedY) {
-  //    ballSpeedX = limitedSpeedX;
-  //}
-  //balls[0]->setSpeed(ballSpeedX, ballSpeedY);
+  double limitedSpeedX = std::max(0.0, std::min(ShotSpeedX, maxSpeedX));
+  double limitedSpeedY = std::max(0.0, std::min(ShotSpeedY, maxSpeedY));
 
   qDebug("Game start...");
   QObject::connect(&timer, &QTimer::timeout, [&]() {
       // Pobierz bie¿¹c¹ pozycjê kuli
       delta = elapsedTimer.elapsed() / 1000.f;
-      
+      static bool increasing = true;
+      static double opacity = 0.5;
+      if (!isWhiteBallOnTable)
+      {
+          trajectoryActor->SetVisibility(0);
+      }
+      if (increasing) {
+          opacity += 0.02;
+          if (opacity >= 1.0) increasing = false;
+      }
+      else {
+          opacity -= 0.02;
+          if (opacity <= 0.5) increasing = true;
+      }
+
+      trajectoryActor->GetProperty()->SetOpacity(opacity);
       // Pauza na 500 ms (pozwala na obserwacjê efektów)
       //QCoreApplication::processEvents();
       //QThread::msleep(300); // Wstrzymanie na 500 ms
@@ -1151,7 +1522,11 @@ int main(int argc, char* argv[])
               }
           }
       }
-      if (allBallsStopped) {
+      if (allBallsStopped && isWhiteBallOnTable) {
+          trajectoryActor->SetVisibility(1);
+          cueStickActor->SetVisibility(1);
+          balls[0]->ballActor->GetPosition(white_pos);
+          UpdateCueSetPosition(cueStickActor, white_pos[0], white_pos[1], white_pos[2], 0, 0, -0.01);
           camera->SetFocalPoint(balls[0]->ballActor->GetPosition());
           if (ShotSpeedX > maxSpeedX) {
               ShotSpeedX = limitedSpeedX;
@@ -1159,19 +1534,23 @@ int main(int argc, char* argv[])
           if (ShotSpeedY > maxSpeedY) {
               ShotSpeedY = limitedSpeedY;
           }
+          trajectory.updateTrajectory(balls[0]->ballActor->GetPosition()[0], balls[0]->ballActor->GetPosition()[1], ShotSpeedX, ShotSpeedY);
+          trajectory.updateGradient(shotSpeedMagnitude * shotSpeedMagnitude);
           if (StickShot)
           {
+			  cueStickActor->SetVisibility(0);
+              trajectoryActor->SetVisibility(0);
               balls[0]->setSpeed(ShotSpeedX, ShotSpeedY);
 			  StickShot = false;
 			  velocityAngle = 0;
-
-
           }
           
 		  
 
       }
+
       vtkRenderWidget->renderWindow()->Render();
+      
 
       });
 
