@@ -982,7 +982,8 @@ public:
         double velocityY = directionY;
 		bool Colliding = false;
         this->points->InsertNextPoint(currentX, currentY, 0.15); // Pocz¹tkowy punkt
-
+        velocityX *= resistanceFactor;
+        velocityY *= resistanceFactor;
         for (int i = 0; i < maxBounces; ++i) {
             // Sprawdzanie kolizji z ka¿d¹ kul¹
             for (Ball* ball : balls) {
