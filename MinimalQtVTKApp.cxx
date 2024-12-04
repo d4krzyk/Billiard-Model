@@ -1022,6 +1022,24 @@ public:
             currentX += velocityX * timeToCollision;
             currentY += velocityY * timeToCollision;
 
+            if (currentX < minX) {
+                currentX = minX;
+                velocityX = -velocityX;  // Odbicie od lewej œciany
+            }
+            else if (currentX > maxX) {
+                currentX = maxX;
+                velocityX = -velocityX;  // Odbicie od prawej œciany
+            }
+
+            if (currentY < minY) {
+                currentY = minY;
+                velocityY = -velocityY;  // Odbicie od dolnej œciany
+            }
+            else if (currentY > maxY) {
+                currentY = maxY;
+                velocityY = -velocityY;  // Odbicie od górnej œciany
+            }
+
             // Dodanie punktu kolizji
             this->points->InsertNextPoint(currentX, currentY, 0.15);
 
