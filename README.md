@@ -2,6 +2,12 @@
 
 **Billard Game** is an interactive billiard game created in C++ using libraries like **VTK** and **Qt**. The game offers dynamic gameplay with physics handling, including wall collisions, shot power, and angle adjustments. The project uses graphical user interfaces to control the game and visual effects to enhance the user experience.
 
+## Showcase
+
+To see how the game looks in action, here’s a GIF showing part of the gameplay:
+
+![Billard In-Game](billard_ingame.gif)
+
 ## Features
 
 - **Wall Collisions**: The game tracks collisions and reflects the balls off the walls accordingly.
@@ -10,7 +16,7 @@
 - **Shot Angle Adjustment**: Adjust the shot angle with the "A" and "D" keys.
 - **Interactive Gameplay**: Use the left mouse button to select the white ball after it has been pocketed, and the right mouse button to set its position when it is placed back on the table.
 - **Camera Zoom**: Use the mouse scroll wheel to zoom in or out.
-- **Start the Game**: The game starts when you press the "Spacebar" key.
+- **Start the Game**: The game starts when you press the "F" key to shoot.
 
 ## Requirements
 
@@ -30,19 +36,7 @@ cd Billard-Model
 
 2. **Install dependencies**:
 
-   Install **VTK** and **Qt**. You can do this via your system's package manager, e.g., `apt-get` (for Ubuntu) or Homebrew (for macOS).
-
-   - On **Ubuntu**:
-
-     ```bash
-     sudo apt-get install libvtk7.1-dev qt5-qmake qtbase5-dev
-     ```
-
-   - On **macOS** (using Homebrew):
-
-     ```bash
-     brew install vtk qt
-     ```
+   Install **cmake**, **VTK** (last version) and **Qt** (version 5 and higher).
 
 3. **Build the project**:
 
@@ -57,10 +51,10 @@ cd Billard-Model
 
 4. **Run the game**:
 
-   After the build completes, run the game with:
+   After the build completes, run the game in this folder:
 
    ```bash
-   ./BillardModel
+   ./build/Release/MinimalQtVTKApp.exe
    ```
 
 ## Controls
@@ -71,13 +65,8 @@ cd Billard-Model
 - **Left Mouse Button**: Select the white ball after it has been pocketed.
 - **Right Mouse Button**: Set the position of the white ball when it is placed back on the table.
 - **Mouse Scroll**: Zoom in or out with the camera.
-- **Spacebar**: Start the game.
+- **F**: Shoot a white ball.
 
-## GIF
-
-To see how the game looks in action, here’s a GIF showing part of the gameplay:
-
-![Billard In-Game](billard_ingame.gif)
 
 ## Contributing
 
